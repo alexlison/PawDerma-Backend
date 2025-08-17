@@ -9,7 +9,7 @@ const CatOwnerSchema = new mongoose.Schema({
   password: { type: String, required: true }, 
   dob: { type: Date, required: true },
   gender: { type: String, required: true },
-  phone: { type: String,required: true },
+  phone: { type: String,required: true,unique:true },
   address: {
     state: String,
     city: String,
