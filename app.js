@@ -58,6 +58,68 @@ app.post("/signup", async (req, res) => {
 });
 
 
+app.post("/signin", async (req, res) => {
+  let input = req.body;
+  let userType = null;
+  let user = null; 
+  
+  if (input.email === "admin@gmail.com" && input.password === "admin@11") {
+    const payload = { userId: "admin_id", userType: "admin" };
+    const token = jwt.sign(payload, "PawDermaKEY", { expiresIn: "1d" });
+    
+    return res.json({
+      Status: "success",
+      token,
+      userType: "admin",
+      userId: "admin_id",
+      name: "Admin"
+    });
+  }
+
+  let catOwner = await CatOwnerModel.findOne({ email: input.email });
+  if (catOwner) {
+    userType = "cat_owner";
+    user = catOwner;
+  } else {
+    let doctor = await doctorModel.findOne({ email: input.email });
+    if (doctor) {
+      userType = "doctor";
+      user = doctor;
+    } else {
+
+        let attender = await attenderModel.findOne({ email: input.email });
+      if (attender) {
+        userType = "attender";
+        user = attender;
+      }
+    }
+  }
+
+  if (!user) {
+    return res.json({ Status: "InvalidEmail" });
+  }
+
+  let passwordValidator = bcrypt.compareSync(input.password, user.password);
+
+  if (!passwordValidator) {
+    return res.json({ Status: "Incorrectpassword" });
+  }
+
+  const payload = { userId: user._id, userType };
+  jwt.sign(payload, "PawDermaKEY", { expiresIn: "1d" }, (error, token) => {
+    if (error) {
+      return res.json({ Status: "error", errorMsg: error });
+    }
+    res.json({
+      Status: "success",
+      token,
+      userId: user._id,
+      userType
+    });
+  });
+});
+
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
