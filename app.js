@@ -120,6 +120,44 @@ app.post("/signin", async (req, res) => {
 });
 
 
+app.post("/doctorSignUp", async (req,res) => {
+
+  try{
+
+      let inputData = req.body
+
+  inputData.email = inputData.email.trim().toLowerCase()
+  
+  inputData.password = bcrypt.hashSync(inputData.password,10)
+
+  const emailExists = await doctorModel.findOne({email:{ $regex : new RegExp(`^${inputData.email}$`,'i') }})
+
+  if(emailExists)
+  {
+    return res.json({"Status":"EmailExists"})
+  }
+
+  const phoneExists = await doctorModel.findOne({phone:inputData.phone})
+
+  if(phoneExists)
+  {
+    return res.json({"Status":"PhoneExists"})
+
+  }
+
+  const newDoctor = new doctorModel(inputData)
+  await newDoctor.save()
+
+  res.json({"Status":"Success"})
+
+
+  }catch(error){
+
+    console.log(error)
+
+  }
+})
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
