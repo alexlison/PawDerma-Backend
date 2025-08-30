@@ -158,6 +158,46 @@ app.post("/doctorSignUp", async (req,res) => {
   }
 })
 
+
+app.post("/attenderSignup",async (req,res) => {
+
+  try{
+
+      const inputData = req.body
+
+        inputData.email = inputData.email.trim().toLowerCase()
+
+        inputData.password = bcrypt.hashSync(inputData.email,10)
+
+        const emailExists = await attenderModel.findOne({email:inputData.email})
+
+        const phoneExists = await attenderModel.findOne({phone:inputData.phone})
+
+        if(emailExists)
+        {
+         return res.json({"Status":"EmailExists"})
+        }
+
+        if(phoneExists)
+        {
+         return res.json({"Status":"PhoneExists"})
+
+        } 
+
+        const newAttender = new attenderModel(inputData)
+        await newAttender.save()
+
+        res.json({"Status":"Success"})
+
+   }catch(error){
+
+    console.log(error)
+    
+
+   }
+
+})
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
