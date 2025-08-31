@@ -228,6 +228,40 @@ app.post("/viewCatOwners",async (req,res) => {
 
 });
 
+app.post("/catOwnerStatusUpdate",async (req,res) => {
+
+  try{
+
+    const { _id }  = req.body
+    
+    if(!_id){
+
+      res.json({"Status":"IdNotFound"})
+    }
+
+    const user = await CatOwnerModel.findById(_id)
+
+    if(!user)
+    {
+      res.json({"Status":"UserNotFound"})
+    }
+
+    user.status = !user.status
+    await user.save()
+
+
+    res.json({"Status":"Success"})
+
+
+
+  }catch(error){
+
+    res.json({"Status":"Error"})
+
+  }
+
+})
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
