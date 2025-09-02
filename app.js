@@ -262,6 +262,34 @@ app.post("/catOwnerStatusUpdate",async (req,res) => {
 
 })
 
+app.post("/viewDoctors",async (req,res) => {
+
+  let token = req.headers.token
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+
+    if(decoded && decoded.userType === "admin")
+    {
+      try {
+
+        const doctorsData =  await doctorModel.find()
+
+        res.json(doctorsData)
+        
+      } catch (error) {
+
+        res.json({"Status":"Error"})
+        
+      }
+    }else{
+
+      res.json({"Status":"Invalid Authentication"})
+    }
+ 
+  });
+
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
