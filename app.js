@@ -290,6 +290,42 @@ app.post("/viewDoctors",async (req,res) => {
 
 });
 
+app.post("/doctorStatusUpdate",async (req,res) => {
+
+  try {
+
+    const { _id } = req.body
+ 
+    if( !_id )
+    {
+      res.json({"Status":"IdNotFound"})
+
+    }
+
+    const doctor = await doctorModel.findById(_id)
+
+    if( !doctor )
+    {
+      res.json({"Status":"UserNotFound"})
+    }
+
+    doctor.status = !doctor.status
+
+    await doctor.save()
+
+    res.json({"Status":"Success"})
+
+
+
+  } catch (error) {
+
+    console.log("Error Fetching doctors Data",err);
+    res.json({"Status":"Error"})
+
+    
+  }
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
