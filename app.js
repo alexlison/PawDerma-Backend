@@ -354,6 +354,42 @@ app.post("/viewAttenders",async (req,res) => {
 
 });
 
+app.post("/attenderStatusUpdate",async (req,res) => {
+
+  try {
+
+    const { _id } = req.body
+ 
+    if( !_id )
+    {
+      res.json({"Status":"IdNotFound"})
+
+    }
+
+    const attender = await attenderModel.findById(_id)
+
+    if( !attender )
+    {
+      res.json({"Status":"UserNotFound"})
+    }
+
+    attender.status = !attender.status
+
+    await attender.save()
+
+    res.json({"Status":"Success"})
+
+
+
+  } catch (error) {
+
+    console.log("Error Fetching Attenders Data",err);
+    res.json({"Status":"Error"})
+
+    
+  }
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
