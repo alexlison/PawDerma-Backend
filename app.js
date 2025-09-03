@@ -390,6 +390,49 @@ app.post("/attenderStatusUpdate",async (req,res) => {
   }
 });
 
+
+
+app.post("/addCat", async (req, res) => {
+  try {
+    const inputData = req.body;
+    const allowedFormats = ["png", "jpg", "jpeg", "webp"];
+    let imagePath = null;
+
+    if (inputData.image && inputData.imageFormat) 
+      {
+        const format = inputData.imageFormat.toLowerCase();
+
+      if (!allowedFormats.includes(format)) 
+      {
+        return res.json({ "Status": "InvalidImageFormat" });
+      }
+
+      const dir = path.join(__dirname, "uploads", "cats");
+      fs.mkdirSync(dir, { recursive: true });
+
+      const safeCatName = inputData.name.replace(/\s+/g, "_").toLowerCase();
+
+      const fileName = `${inputData.catOwner_id}_${safeCatName}.${format}`;
+      imagePath = `/uploads/cats/${fileName}`;
+
+      const buffer = Buffer.from(inputData.image, "base64");
+      fs.writeFileSync(path.join(dir, fileName), buffer);
+    }
+
+    inputData.image = imagePath
+
+ 
+    const newCat = new CatModel(inputData)
+
+    await newCat.save();
+
+    res.json({ "Status": "Success"});
+  } catch (err) {
+    console.error("Error adding cat:", err);
+    res.status(500).json({ Status: "Error" });
+  }
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
