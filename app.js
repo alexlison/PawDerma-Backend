@@ -568,6 +568,29 @@ app.put("/updateCat/:id", upload.single("image"), async (req, res) => {
 });
 
 
+// ------------------------- retrieve cat details to fetch in form ---------------- //
+app.get("/getCat/:id", async (req, res) => {
+  const token = req.headers.token;
+  const catId = req.params.id;
+
+  if (!token) return res.json({ Status: "Invalid Authentication" });
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const cat = await CatModel.findById(catId);
+      if (!cat) return res.json({ "Status": "CatNotFound" });
+
+      res.json({ Status: "Success", cat });
+    } catch (err) {
+      console.error("Error fetching cat:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
 
 
 app.listen(4000,() => {
