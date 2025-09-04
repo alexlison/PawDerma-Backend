@@ -593,6 +593,46 @@ app.get("/getCat/:id", async (req, res) => {
 });
 
 
+// ------------------- Doctor View ------------------- //
+
+app.post("/doctorView",async (req,res) => {
+
+  let token = req.headers.token
+
+  let  { userId }  = req.body
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+    
+    if(decoded && decoded.userType === "doctor")
+    {
+      try {
+
+        const doctorData = await doctorModel.findById(userId)
+
+        if(!doctorData)
+        {
+          return res.json({"Status":"doctorNotFound"})
+        }
+
+        res.json(doctorData)
+        
+      } catch (err) {
+
+        if(err)
+        {
+          res.json({"Status":"Error"})
+        }
+        
+      }
+    }else{
+
+      res.json({"Status":"Invalid Authentication"})
+    }
+
+  })
+
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
