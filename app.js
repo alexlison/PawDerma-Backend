@@ -5,6 +5,14 @@ const cors = require("cors")
 const bcrypt = require("bcrypt")
 const jwt = require("jsonwebtoken")
 const CatOwnerModel = require("./models/catOwners")
+const doctorModel = require("./models/Doctors")
+const attenderModel = require("./models/Attenders")
+const CatModel = require("./models/Cats")
+
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
+
 
 const app = express()
 
@@ -12,8 +20,12 @@ app.use(express.json())
 app.use(cors())
 app.use(express.urlencoded({extended:true}))
 
+// ✅ Now expose uploads folder
+app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+
 mongoose.connect("mongodb+srv://alexlison:alexlison6885@cluster0.bz3d6.mongodb.net/PawDermaDb?retryWrites=true&w=majority&appName=Cluster0")
 
+// ----------------------- CatOwner Registration  ----------------------------------- //
 
 app.post("/signup", async (req, res) => {
     try {
@@ -57,6 +69,7 @@ app.post("/signup", async (req, res) => {
     }
 });
 
+// ----------------------- Login  ----------------------------------- //
 
 app.post("/signin", async (req, res) => {
   let input = req.body;
@@ -119,6 +132,7 @@ app.post("/signin", async (req, res) => {
   });
 });
 
+// ----------------------- Doctor Registration ----------------------------------- //
 
 app.post("/doctorSignUp", async (req,res) => {
 
@@ -158,6 +172,7 @@ app.post("/doctorSignUp", async (req,res) => {
   }
 })
 
+// ----------------------- Attender Registration  ----------------------------------- //
 
 app.post("/attenderSignup",async (req,res) => {
 
@@ -198,6 +213,7 @@ app.post("/attenderSignup",async (req,res) => {
 
 })
 
+// ----------------------- View All CatOwners ----------------------------------- //
 
 app.post("/viewCatOwners",async (req,res) => {
 
@@ -228,6 +244,8 @@ app.post("/viewCatOwners",async (req,res) => {
 
 });
 
+// ----------------------- CatOwner Status Update ----------------------------------- //
+
 app.post("/catOwnerStatusUpdate",async (req,res) => {
 
   try{
@@ -256,11 +274,14 @@ app.post("/catOwnerStatusUpdate",async (req,res) => {
 
   }catch(error){
 
+    console.log("Error Fetching doctors Data",err);
     res.json({"Status":"Error"})
 
   }
 
 })
+
+// ----------------------- View All Doctors  ----------------------------------- //
 
 app.post("/viewDoctors",async (req,res) => {
 
@@ -289,6 +310,8 @@ app.post("/viewDoctors",async (req,res) => {
   });
 
 });
+
+// ----------------------- Doctor Status Update ----------------------------------- //
 
 app.post("/doctorStatusUpdate",async (req,res) => {
 
@@ -326,6 +349,8 @@ app.post("/doctorStatusUpdate",async (req,res) => {
   }
 });
 
+// ----------------------- View All Attenders ----------------------------------- //
+
 app.post("/viewAttenders",async (req,res) => {
 
   let token = req.headers.token
@@ -353,6 +378,10 @@ app.post("/viewAttenders",async (req,res) => {
   });
 
 });
+
+
+// ----------------------- Attender Status Update ----------------------------------- //
+
 
 app.post("/attenderStatusUpdate",async (req,res) => {
 
@@ -391,47 +420,51 @@ app.post("/attenderStatusUpdate",async (req,res) => {
 });
 
 
+// ----------------------- multer setup ----------------------- // 
 
-app.post("/addCat", async (req, res) => {
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "uploads", "cats");
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const catId = req.params.id;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeCatName = req.body.name
+      ? req.body.name.replace(/\s+/g, "_").toLowerCase()
+      : "cat";
+    cb(null, `${catId}_${safeCatName}${ext}`);
+  },
+});
+
+const upload = multer({ storage });
+
+///
+
+
+// ----------------------- Add Cat ----------------------------------- //
+
+app.post("/addCat", upload.single("image"), async (req, res) => {
   try {
     const inputData = req.body;
-    const allowedFormats = ["png", "jpg", "jpeg", "webp"];
-    let imagePath = null;
 
-    if (inputData.image && inputData.imageFormat) 
-      {
-        const format = inputData.imageFormat.toLowerCase();
-
-      if (!allowedFormats.includes(format)) 
-      {
-        return res.json({ "Status": "InvalidImageFormat" });
-      }
-
-      const dir = path.join(__dirname, "uploads", "cats");
-      fs.mkdirSync(dir, { recursive: true });
-
-      const safeCatName = inputData.name.replace(/\s+/g, "_").toLowerCase();
-
-      const fileName = `${inputData.catOwner_id}_${safeCatName}.${format}`;
-      imagePath = `/uploads/cats/${fileName}`;
-
-      const buffer = Buffer.from(inputData.image, "base64");
-      fs.writeFileSync(path.join(dir, fileName), buffer);
+    if (req.file) {
+      inputData.image = `/uploads/cats/${req.file.filename}`;
     }
 
-    inputData.image = imagePath
-
- 
-    const newCat = new CatModel(inputData)
-
+    const newCat = new CatModel(inputData);
     await newCat.save();
 
-    res.json({ "Status": "Success"});
+    res.json({ "Status": "Success" });
   } catch (err) {
     console.error("Error adding cat:", err);
     res.status(500).json({ Status: "Error" });
   }
 });
+
+
+// ----------------------- View All Cat ----------------------------------- //
 
 app.post("/viewCats",async (req,res) => {
 
@@ -459,10 +492,13 @@ app.post("/viewCats",async (req,res) => {
 
 });
 
+// ----------------------- View MyCat ----------------------------------- //
+
 
 app.post("/viewMyCats",async (req,res) => {
 
   let token = req.headers.token
+  let { userId } = req.body;
 
   jwt.verify(token,"PawDermaKEY", async (error,decoded) => {
 
@@ -470,7 +506,7 @@ app.post("/viewMyCats",async (req,res) => {
 
       try {
 
-        const usercatsData = await CatModel.find({catOwner_id : decoded.userId})
+          const usercatsData = await CatModel.find({catOwner_id: userId})
 
         res.json(usercatsData)
         
@@ -489,6 +525,50 @@ app.post("/viewMyCats",async (req,res) => {
   });
 
 });
+
+// ----------------------- Update Cat ----------------------------------- //
+
+
+app.put("/updateCat/:id", upload.single("image"), async (req, res) => {
+  let token = req.headers.token;
+  let catId = req.params.id;
+  const updateCatData = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      // Prevent ownership change
+      if (updateCatData.catOwner_id) {
+        delete updateCatData.catOwner_id;
+      }
+
+      // Handle image update (if file uploaded via Postman)
+      if (req.file) {
+        updateCatData.image = `/uploads/cats/${req.file.filename}`;
+      }
+
+      const updatedCatData = await CatModel.findByIdAndUpdate(catId, updateCatData, {
+        new: true,
+      });
+
+      if (!updatedCatData) {
+        return res.json({ "Status": "CatNotFound" });
+      }
+
+      res.json({"Status":"Success"});
+
+    } catch (err) {
+      console.error("Error updating cat:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
+
+
 
 app.listen(4000,() => {
 
