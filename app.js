@@ -633,6 +633,111 @@ app.post("/doctorView",async (req,res) => {
 
 });
 
+
+// ------------------------------ Edit Doctor -------------------------- //
+
+
+app.put("/updateDoctor/:id", async (req, res) => {
+  let token = req.headers.token;
+  let doctorId = req.params.id; 
+  let updateData = { ...req.body };
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "doctor") {
+      try {
+       
+        const doctor = await doctorModel.findById(doctorId);
+        if (!doctor) {
+          return res.json({ "Status": "DoctorNotFound" });
+        }
+
+        // Prevent updating restricted fields
+        delete updateData.email;
+        delete updateData.experience;
+
+
+        if (updateData.oldPassword && updateData.newPassword) {
+          const isMatch = await bcrypt.compare(updateData.oldPassword,doctor.password);
+          if (!isMatch) {
+            return res.json({ "Status": "InvalidOldPassword" });
+          }
+  
+          updateData.password = bcrypt.hashSync(updateData.newPassword,10);
+
+          // Remove temp fields so they don't overwrite
+          delete updateData.oldPassword;
+          delete updateData.newPassword;
+        } else {
+          delete updateData.password; // ensure no accidental overwrite
+        }
+       
+      if (updateData.phone) {
+        const phoneExists = await doctorModel.findOne({
+         phone: updateData.phone,
+         _id: { $ne: doctorId } 
+         });
+
+        if (phoneExists) {
+           return res.json({ "Status": "PhoneAlreadyExists" });
+        }
+      }
+
+        const updatedDoctorData = await doctorModel.findByIdAndUpdate(
+          doctorId,
+          updateData,
+          { new: true }
+        );
+
+        res.json({ "Status": "Success" });
+      } catch (error) {
+        console.log("Error -->", error);
+        res.json({ "Status": "Error" });
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
+
+
+// ------------------------- retrieve Doctor details to fetch in Edit form ---------------- //
+
+app.get("/getDoctor/:id",async (req,res) => {
+
+  let token = req.headers.token
+  let doctorId = req.params.id
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+
+    if(decoded && decoded.userType === "doctor")
+    {
+      try{
+
+        const doctorData = await doctorModel.findById(doctorId)
+
+        if(!doctorData)
+        {
+          return res.json({"Status":"DoctorNotFound"})
+        }
+
+        res.json(doctorData)
+      }catch(err){
+
+      if(err)
+      {
+        console.log("Error -> ",err)
+        res.json({"Status":"Error"})
+      }
+    }
+
+  }else{
+
+    res.json({"Status":"Invalid Authentication"})
+  }
+  });
+
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
