@@ -738,6 +738,49 @@ app.get("/getDoctor/:id",async (req,res) => {
 
 });
 
+// ---------------------------- Doctor Schedule Slots ---------------------- //
+
+app.post("/doctorSchedules",async (req,res) => {
+
+  let token = req.headers.token
+
+  let inputData = req.body
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+  
+    if(decoded && decoded.userType === "doctor")
+    {
+      try {
+
+        const exists = await doctorSchedulesModel.findOne({
+          doctorId:inputData.doctorId,
+          date : inputData.date,
+          consultationFrom : inputData.consultationFrom,
+          consultationTo : inputData.consultationTo,
+        });
+        
+          if (exists) {
+          return res.json({ Status: "ScheduleAlreadyExists" });
+          }
+
+        const newSchedule = new doctorSchedulesModel(inputData)
+        await newSchedule.save() 
+
+        res.json({"Status":"Success"})
+        
+      } catch (error) {
+
+        console.log("Error -->", error);
+        res.json({ Status: "Error" });
+        
+      }
+    }else {
+         res.json({ Status: "Invalid Authentication" });
+    }
+
+  });
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
