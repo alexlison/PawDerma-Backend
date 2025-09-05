@@ -781,6 +781,34 @@ app.post("/doctorSchedules",async (req,res) => {
   });
 });
 
+// ---------------------------- view Doctor Schedules ------------------------ //
+
+app.post("/viewDoctorSchedules", async (req, res) => {
+  let token = req.headers.token;
+  let { doctorId } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "doctor") {
+      try {
+        const doctorSchedules = await doctorSchedulesModel.find({ doctorId: doctorId });
+
+
+        if (!doctorSchedules || doctorSchedules.length === 0) {
+          return res.json({ "Status": "SchedulesNotFound" });
+        }
+
+        res.json({doctorSchedules});
+      } catch (err) {
+        
+        res.json({ "Status": "Error"});
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
+
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
