@@ -809,6 +809,91 @@ app.post("/viewDoctorSchedules", async (req, res) => {
 });
 
 
+
+// --------------------------- Update Doctor Schedule ----------------------- //
+
+app.put("/updateSchedule/:id", async (req, res) => {
+  let token = req.headers.token;
+  let scheduleId = req.params.id;   
+  let updateScheduleData = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "doctor") {
+      try {
+        
+        delete updateScheduleData.doctorId;
+
+        const exists = await doctorSchedulesModel.findOne({
+          doctorId: decoded.userId, 
+          date: updateScheduleData.date,
+          consultationFrom: updateScheduleData.consultationFrom,
+          consultationTo: updateScheduleData.consultationTo,
+          _id: { $ne: scheduleId }, 
+        });
+
+        if (exists) {
+          return res.json({"Status": "ScheduleAlreadyExists"});
+        }
+
+        const updateSchedule = await doctorSchedulesModel.findByIdAndUpdate(
+          scheduleId,
+          updateScheduleData,
+          { new: true }
+        );
+
+        if (!updateSchedule) {
+          return res.json({ Status: "ScheduleIdNotFound" });
+        }
+
+        res.json({ "Status": "Success" });
+      } catch (err) {
+        console.error("Update Error:", err);
+        res.json({"Status": "Error"});
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
+
+// ------------------------ fetch Data in update Schedule Form ----------------- //
+
+app.get("/getSchedule/:id",async (req,res) => {
+
+  let token = req.headers.token
+  let scheduleId = req.params.id
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+
+    if(decoded && decoded.userType === "doctor")
+    {
+      try{
+
+        const scheduleData = await doctorSchedulesModel.findById(scheduleId)
+
+        if(!scheduleData)
+        {
+          return res.json({"Status":"scheduleNotFound"})
+        }
+
+        res.json(scheduleData)
+      }catch(err){
+
+      if(err)
+      {
+        console.log("Error -> ",err)
+        res.json({"Status":"Error"})
+      }
+    }
+
+  }else{
+
+    res.json({"Status":"Invalid Authentication"})
+  }
+  });
+
+});
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
