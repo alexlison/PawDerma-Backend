@@ -5,14 +5,14 @@ const doctorScheduleSchema = new mongoose.Schema(
     {
       doctorId: { 
       type: mongoose.Schema.Types.ObjectId, 
-      ref: "Doctor", 
+      ref: "doctors", 
       required: true 
       },
     date: { type: Date, required: true },
     consultationFrom: { type: String, required: true },
     consultationTo: { type: String, required: true },
-    slots: { type: String, required: true },
-    remaining_slots: { type: String }
+    slots: { type: Number, required: true },
+    remaining_slots: { type:Number  }
   }
 )
 
