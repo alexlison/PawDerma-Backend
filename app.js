@@ -4,7 +4,6 @@ const mongoose = require("mongoose")
 const cors = require("cors")
 const bcrypt = require("bcrypt")
 const jwt = require("jsonwebtoken")
-const CatOwnerModel = require("./models/catOwners")
 const doctorModel = require("./models/Doctors")
 const attenderModel = require("./models/Attenders")
 const CatModel = require("./models/Cats")
@@ -12,6 +11,9 @@ const CatModel = require("./models/Cats")
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const CatOwnerModel = require("./models/CatOwners")
+const doctorSchedulesModel = require("./models/DoctorSchedules")
+const appointmentModel = require("./models/Appointments")
 
 
 const app = express()
@@ -20,7 +22,6 @@ app.use(express.json())
 app.use(cors())
 app.use(express.urlencoded({extended:true}))
 
-// ✅ Now expose uploads folder
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 mongoose.connect("mongodb+srv://alexlison:alexlison6885@cluster0.bz3d6.mongodb.net/PawDermaDb?retryWrites=true&w=majority&appName=Cluster0")
@@ -476,8 +477,8 @@ app.post("/viewCats",async (req,res) => {
     {
       try {
 
-        const catsData = await CatModel.find()
-         res.json(catsData)
+        const catsData = await CatModel.find().populate("catOwner_id","fname lname");
+         res.json(catsData);
         
       } catch (err) {
 
@@ -569,6 +570,7 @@ app.put("/updateCat/:id", upload.single("image"), async (req, res) => {
 
 
 // ------------------------- retrieve cat details to fetch in form ---------------- //
+
 app.get("/getCat/:id", async (req, res) => {
   const token = req.headers.token;
   const catId = req.params.id;
@@ -591,7 +593,6 @@ app.get("/getCat/:id", async (req, res) => {
     }
   });
 });
-
 
 // ------------------- Doctor View ------------------- //
 
@@ -632,7 +633,6 @@ app.post("/doctorView",async (req,res) => {
   })
 
 });
-
 
 // ------------------------------ Edit Doctor -------------------------- //
 
@@ -738,6 +738,7 @@ app.get("/getDoctor/:id",async (req,res) => {
 
 });
 
+
 // ---------------------------- Doctor Schedule Slots ---------------------- //
 
 app.post("/doctorSchedules",async (req,res) => {
@@ -770,7 +771,7 @@ app.post("/doctorSchedules",async (req,res) => {
         
       } catch (error) {
 
-        console.log("Error -->", error);
+        
         res.json({ Status: "Error" });
         
       }
@@ -779,7 +780,9 @@ app.post("/doctorSchedules",async (req,res) => {
     }
 
   });
+
 });
+
 
 // ---------------------------- view Doctor Schedules ------------------------ //
 
@@ -797,7 +800,7 @@ app.post("/viewDoctorSchedules", async (req, res) => {
           return res.json({ "Status": "SchedulesNotFound" });
         }
 
-        res.json({doctorSchedules});
+        res.json(doctorSchedules);
       } catch (err) {
         
         res.json({ "Status": "Error"});
@@ -893,6 +896,109 @@ app.get("/getSchedule/:id",async (req,res) => {
   });
 
 });
+
+// ------------------------- Get doctor details for  General Appointment Booking ---------------------------- // 
+
+app.get("/getDoctorDetails",async (req,res) => {
+
+  let token = req.headers.token
+  let booking_date = req.query.date
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+   
+    if(decoded && decoded.userType === "cat_owner")
+    {
+      try {
+
+        const availableDoctors = await doctorSchedulesModel.find({
+          date: booking_date,
+          remaining_slots: {$gt : 0},
+        }).populate("doctorId");
+
+        if (!availableDoctors || availableDoctors.length === 0)
+        {
+          return res.json({"Status":"NoDoctorsForTHisDate"})
+        }
+
+        res.json(availableDoctors)
+
+        
+      } catch (err) {
+
+        if(err)
+        {
+          console.log("Error --> ",err)
+          res.json({"Status":"Error"})
+        }
+        
+      }
+    }else{
+
+      res.json({"Status":"Invalid Authentication"})
+    }
+
+  });
+});
+
+
+//------------------------------ General Appointment Booking ---------------------------//
+
+app.post("/generalBooking", async (req, res) => {
+  let token = req.headers.token;
+  const BookingData = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const { doctorId, catId, date } = BookingData;
+
+      const existingAppointment = await appointmentModel.findOne({
+        doctorId,
+        catId,
+        appointmentDate: new Date(date)
+      });
+
+      if (existingAppointment) {
+        return res.json({ "Status": "DuplicateBookingNotAllowed" });
+      }
+
+      const schedule = await doctorSchedulesModel.findOneAndUpdate(
+        {
+          doctorId,
+          date: new Date(date),
+          remaining_slots: { $gt: 0 }
+        },
+        { $inc: { remaining_slots: -1 } },
+        { new: true }
+      );
+
+      if (!schedule) {
+        return res.json({ "Status": "NoAvailableSlot" });
+      }
+
+      const newAppointment = new appointmentModel({
+        ...BookingData,
+        appointmentDate: new Date(date)
+      });
+
+      await newAppointment.save();
+
+      res.json({ Status: "Success"});
+
+    } catch (err) {
+      console.error("Error --> ", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
+
+
+
+
 
 app.listen(4000,() => {
 
