@@ -940,61 +940,65 @@ app.get("/getDoctorDetails",async (req,res) => {
   });
 });
 
-
 //------------------------------ General Appointment Booking ---------------------------//
-
 app.post("/generalBooking", async (req, res) => {
-  let token = req.headers.token;
+  const token = req.headers.token;
   const BookingData = req.body;
 
   jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
     if (error || !decoded || decoded.userType !== "cat_owner") {
-      return res.json({ "Status": "Invalid Authentication" });
+      return res.json({ Status: "Invalid Authentication" });
     }
 
     try {
-      const { doctorId, catId, date } = BookingData;
-
-      const existingAppointment = await appointmentModel.findOne({
-        doctorId,
-        catId,
-        appointmentDate: new Date(date)
-      });
-
-      if (existingAppointment) {
-        return res.json({ "Status": "DuplicateBookingNotAllowed" });
-      }
+      const { catId, scheduleId, date, symptoms } = BookingData;
 
       const schedule = await doctorSchedulesModel.findOneAndUpdate(
         {
-          doctorId,
-          date: new Date(date),
-          remaining_slots: { $gt: 0 }
+          _id: scheduleId,
+          remaining_slots: { $gt: 0 },
         },
         { $inc: { remaining_slots: -1 } },
         { new: true }
       );
 
       if (!schedule) {
-        return res.json({ "Status": "NoAvailableSlot" });
+        return res.json({ Status: "NoAvailableSlot" });
       }
 
+      const existingAppointment = await appointmentModel.findOne({
+        catId,
+        scheduleId,
+      });
+
+      if (existingAppointment) {
+        await doctorSchedulesModel.findByIdAndUpdate(schedule._id, {
+          $inc: { remaining_slots: 1 },
+        });
+        return res.json({ Status: "DuplicateBookingNotAllowed" });
+      }
+
+      const tokenNumber = (await appointmentModel.countDocuments({ scheduleId })) + 1;
+
       const newAppointment = new appointmentModel({
-        ...BookingData,
-        appointmentDate: new Date(date)
+        catOwner_id: decoded.userId,
+        catId,
+        scheduleId,
+        appointmentDate: new Date(date),
+        symptoms,
+        token: tokenNumber,
+        bookingType: "GENERAL",
       });
 
       await newAppointment.save();
 
-      res.json({ Status: "Success"});
-
+      res.json({ Status: "Success", appointmentId: newAppointment._id });
     } catch (err) {
-      console.error("Error --> ", err);
-      res.json({ "Status": "Error" });
+      console.error("Error -->", err);
+      res.json({ Status: "Error" });
     }
   });
 });
-
 
 
 
