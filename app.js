@@ -15,6 +15,12 @@ const CatOwnerModel = require("./models/CatOwners")
 const doctorSchedulesModel = require("./models/DoctorSchedules")
 const appointmentModel = require("./models/Appointments")
 
+// ======== ADD RAZORPAY REQUIRE HERE ========
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
+const PaymentModel = require("./models/Payments")
+// ===========================================
+
 
 const app = express()
 
@@ -23,6 +29,16 @@ app.use(cors())
 app.use(express.urlencoded({extended:true}))
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+
+
+// ======== ADD RAZORPAY INITIALIZATION HERE ========
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_RGywSXNw2dqMO2", 
+  key_secret: process.env.RAZORPAY_KEY_SECRET || "7f1ss7rwYW5Vd9GKnViMp1Hh" 
+});
+// ==================================================
+
+
 
 mongoose.connect("mongodb+srv://alexlison:alexlison6885@cluster0.bz3d6.mongodb.net/PawDermaDb?retryWrites=true&w=majority&appName=Cluster0")
 
@@ -940,6 +956,8 @@ app.get("/getDoctorDetails",async (req,res) => {
   });
 });
 
+
+
 //------------------------------ General Appointment Booking ---------------------------//
 app.post("/generalBooking", async (req, res) => {
   const token = req.headers.token;
@@ -1001,6 +1019,168 @@ app.post("/generalBooking", async (req, res) => {
 });
 
 
+// -------------------------- RazorPay Integration --------------------------- //
+
+app.post("/create-order", async (req, res) => {
+  let token = req.headers.token;
+  const { amount, appointment_id } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      // CHECK 1: Verify appointment exists and get its bookingType
+      const appointment = await appointmentModel.findById(appointment_id);
+      if (!appointment) {
+        return res.json({ 
+          "Status": "Error", 
+          "Message": "Appointment not found" 
+        });
+      }
+
+      // CHECK 2: Prevent payment if appointment is already CONFIRMED/COMPLETED
+      if (appointment.status !== "PENDING") {
+        return res.json({ "Status": "AlreadyConfirmed"});
+      }
+
+  
+      // CHECK 3: Prevent duplicate payments for this appointment
+      const existingPayment = await PaymentModel.findOne({
+        appointment_id: appointment_id,
+        status: { $in: ["created", "paid"] } // Check for active or completed payments
+      });
+
+      if (existingPayment) {
+        return res.json({"Status": "AlreadyPaid",appointmentId: appointment_id});
+      }
+
+      const InCompletePayment = await PaymentModel.findOne({
+        appointment_id : appointment_id,
+        status: {$in : ["attempted","failed"]}
+      });
+      if(InCompletePayment)
+      {
+         return res.json({ "Status": "PaymentFailed"});
+      }
+
+      // Convert amount to paise (Razorpay expects amount in smallest currency unit)
+      const amountInPaise = amount * 100;
+      
+      const options = {
+        amount: amountInPaise,
+        currency: "INR",
+        receipt: `receipt_${appointment_id}`,
+        payment_capture: 1 
+        
+      };
+
+      // Create order in Razorpay
+      const order = await razorpay.orders.create(options);
+      
+      // Create payment record in database
+      const payment = new PaymentModel({
+        appointment_id,
+        razorpay_order_id: order.id,
+        amount: amount,
+        status: "created"
+      });
+      
+      await payment.save();
+
+      res.json({
+        Status: "Success",
+        order: order,
+        payment_id: payment._id,
+        booking_type: appointment.bookingType 
+      });
+    } catch (err) {
+      console.error("Razorpay order creation error:", err);
+      res.json({ "Status": "Error", "Message": err.message });
+    }
+  });
+});
+
+
+// Test route to generate signature for Postman testing
+
+app.post("/generate-test-signature", (req, res) => {
+  const { order_id, payment_id } = req.body;
+  
+  const body = order_id + "|" + payment_id;
+  const signature = crypto
+    .createHmac("sha256", razorpay.key_secret)
+    .update(body.toString())
+    .digest("hex");
+
+  res.json({
+    order_id,
+    payment_id,
+    generated_signature: signature
+  });
+});
+
+
+//verify payment 
+
+app.post("/verify-payment", async (req, res) => {
+  let token = req.headers.token;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, payment_id } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      // Create expected signature - USE THE SAME KEY AS RAZORPAY INIT
+      const body = razorpay_order_id + "|" + razorpay_payment_id;
+      const expectedSignature = crypto
+        .createHmac("sha256", razorpay.key_secret) 
+        .update(body.toString())
+        .digest("hex");
+
+
+      // Verify signature
+      const isAuthentic = expectedSignature === razorpay_signature;
+
+      if (isAuthentic) {
+        await PaymentModel.findByIdAndUpdate(payment_id, {
+          razorpay_payment_id,
+          razorpay_signature,
+          status: "paid",
+          updated_at: Date.now()
+        });
+
+        // Find the appointment linked to this payment
+        const paymentRecord = await PaymentModel.findById(payment_id);
+        
+        // Update appointment status to "CONFIRMED"
+        await appointmentModel.findByIdAndUpdate(
+          paymentRecord.appointment_id, 
+          { 
+            status: "CONFIRMED",
+            payment_status: "paid"
+          }
+        );
+
+        res.json({ "Status": "Success", appointmentId: paymentRecord.appointment_id });
+      } else {
+        // Signature verification failed
+        await PaymentModel.findByIdAndUpdate(payment_id, {
+          status: "failed",
+          updated_at: Date.now()
+        });
+        
+        res.json({ "Status": "Error", "Message": "Payment verification failed" });
+      }
+    } catch (err) {
+      console.error("Payment verification error:", err);
+      res.json({ "Status": "Error", "Message": err.message });
+    }
+  });
+});
 
 
 
