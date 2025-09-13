@@ -21,6 +21,10 @@ const crypto = require("crypto");
 const PaymentModel = require("./models/Payments")
 // ===========================================
 
+const PDFDocument = require('pdfkit');
+
+
+
 
 const app = express()
 
@@ -1178,6 +1182,174 @@ app.post("/verify-payment", async (req, res) => {
     } catch (err) {
       console.error("Payment verification error:", err);
       res.json({ "Status": "Error", "Message": err.message });
+    }
+  });
+});
+
+
+// ----------------------- Generate Receipt PDF --------------------------- //
+app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
+  let token = req.headers.token;
+  const { appointmentId } = req.params;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded) {
+      return res.status(401).send("Invalid Authentication");
+    }
+
+    try {
+      const appointment = await appointmentModel.findById(appointmentId)
+        .populate("catOwner_id", "fname mname lname phone")
+        .populate("catId", "name")
+        .populate({
+          path: "scheduleId",
+          populate: { path: "doctorId", select: "fname mname lname qualification" },
+        });
+
+      if (!appointment) return res.status(404).send("Appointment not found");
+
+      const payment = await PaymentModel.findOne({ appointment_id: appointmentId });
+      if (!payment) return res.status(404).send("Payment not found");
+
+      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=receipt-${appointmentId}.pdf`
+      );
+      doc.pipe(res);
+
+      const primaryColor = "#9d1328"; // dark red
+
+      // ---------------- HEADER ----------------
+      try {
+        const logoPath = path.join(__dirname, "uploads", "pawderma-logo.png");
+        if (fs.existsSync(logoPath)) {
+          doc.image(logoPath, 50, 40, { width: 110, height: 50 });
+        }
+      } catch (err) {
+        console.log("Logo not found, skipping...");
+      }
+
+      // Clinic Info (right)
+      doc.fontSize(10).fillColor("#000").font("Helvetica")
+        .text("MC Road, Thrissur", 400, 50, { align: "right" })
+        .text("Kerala 682001", 400, 65, { align: "right" })
+        .text("Phone: +91 7836627882", 400, 80, { align: "right" })
+        .text("Email: pawderma@gmail.com", 400, 95, { align: "right" });
+
+  
+      const marginSpace = 25;
+      const lineYPosition = 95 + marginSpace; 
+
+      doc.moveTo(50, lineYPosition)   
+        .lineTo(550, lineYPosition)   
+        .stroke();
+    
+      doc.moveDown(5) 
+
+      // Title centered
+      doc.fontSize(13).fillColor(primaryColor).font("Helvetica-Bold")
+        .text("APPOINTMENT RECEIPT", 0, 130, { align: "center", underline: true });
+
+      // ---------------- RECEIPT INFO ----------------
+      const now = new Date();
+      doc.fontSize(10).fillColor("#000").font("Helvetica-Bold")
+        .text(`Receipt No: PD-${appointmentId.toString().slice(-6)}`, 50, 170)
+        .font("Helvetica")
+        .text(`Date: ${now.toLocaleDateString()}`, 400, 170, { align: "right" })
+        .text(`Time: ${now.toLocaleTimeString()}`, 400, 185, { align: "right" });
+
+      // ---------------- CUSTOMER (bordered card) ----------------
+      doc.moveDown(2);
+      const custTop = doc.y;
+      doc.rect(50, custTop, 500, 70).stroke(); // card border
+      doc.rect(50, custTop, 500, 20).fill(primaryColor).stroke(); // header background
+      doc.fillColor("#fff").font("Helvetica-Bold").text("Customer Details", 55, custTop + 5);
+
+      doc.fillColor("#000").font("Helvetica").fontSize(10);
+      doc.text(
+        `Name: ${appointment.catOwner_id.fname} ${appointment.catOwner_id.mname || ""} ${appointment.catOwner_id.lname}`,
+        60,
+        custTop + 30
+      );
+      doc.text(`Phone: ${appointment.catOwner_id.phone || "N/A"}`, 60, custTop + 50);
+
+      doc.moveDown(5);
+
+      // ---------------- APPOINTMENT ----------------
+      doc.rect(50, doc.y, 500, 20).fill(primaryColor).stroke();
+      doc.fillColor("#fff").font("Helvetica-Bold").text("Appointment Details", 55, doc.y + 5);
+      doc.moveDown(2);
+
+      // Table headers
+      const tableTop = doc.y;
+      const colWidths = [50, 70, 120, 100, 80, 80];
+      const headers = ["Token", "Date", "Doctor", "Qualification", "Type", "Cat"];
+
+      let x = 50;
+      headers.forEach((h, i) => {
+        doc.rect(x, tableTop, colWidths[i], 20).fill(primaryColor).stroke();
+        doc.fillColor("#fff").font("Helvetica-Bold").fontSize(10)
+          .text(h, x, tableTop + 5, { width: colWidths[i], align: "center" });
+        x += colWidths[i];
+      });
+
+      // Table row
+      const rowTop = tableTop + 20;
+      const doctorName = `${appointment.scheduleId.doctorId.fname} ${appointment.scheduleId.doctorId.lname}`;
+      const rowData = [
+        appointment.token,
+        appointment.appointmentDate.toLocaleDateString(),
+        doctorName,
+        appointment.scheduleId.doctorId.qualification,
+        appointment.bookingType,
+        appointment.catId.name,
+      ];
+
+      x = 50;
+      rowData.forEach((d, i) => {
+        doc.rect(x, rowTop, colWidths[i], 20).stroke();
+        doc.fillColor("#000").font("Helvetica").fontSize(10)
+          .text(d.toString(), x, rowTop + 5, { width: colWidths[i], align: "center" });
+        x += colWidths[i];
+      });
+
+      // ---------------- PAYMENT ----------------
+      doc.moveDown(4);
+      const payTop = doc.y;
+      doc.rect(50, payTop, 500, 80).stroke(); // card border
+      doc.rect(50, payTop, 500, 20).fill(primaryColor).stroke(); // header bg
+      doc.fillColor("#fff").font("Helvetica-Bold").text("Payment Details", 55, payTop + 5);
+
+      doc.fillColor("#000").font("Helvetica").fontSize(10);
+      doc.text(`Amount: INR ${payment.amount}`, 60, payTop + 30);
+      
+      doc.font('Helvetica')
+         .fillColor('#000000')   
+         .text('Status:', 60, payTop + 45);                      
+
+      
+      doc.font('Helvetica-Bold')      
+      .fillColor(payment.status.toLowerCase() === "paid" ? "#0caf2c" : "red")
+      .text(payment.status.toUpperCase(), 60 + doc.widthOfString('Status: ') + 2, payTop + 45);
+      doc.fillColor("#000").text(`Payment Date: ${payment.updated_at.toLocaleDateString()}`, 60, payTop + 60);
+
+      // ---------------- FOOTER ----------------
+      doc.moveTo(50, 750).lineTo(550, 750).stroke();
+
+      doc.moveDown(2);
+      doc.fontSize(9).fillColor("#000")
+          
+       .text("Thank you for choosing PawDerma for your pet care needs.", 50, 770, { 
+       align: "center" 
+       });
+
+
+      doc.end();
+    } catch (err) {
+      console.error("Receipt generation error:", err);
+      return res.status(500).send("Error generating receipt");
     }
   });
 });
