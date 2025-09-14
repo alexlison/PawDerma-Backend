@@ -1354,7 +1354,62 @@ app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
   });
 });
 
+// ----------------------------- Doctor Appointments ------------------------------- //
 
+function formatDate(date) {
+  const d = new Date(date);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// ----------------------- Doctor View Appointments --------------------------- //
+app.post("/doctorAppointments", async (req, res) => {
+  let token = req.headers.token;
+  let { doctorId } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "doctor") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const appointments = await appointmentModel.find({ status: "CONFIRMED" })
+        .populate({
+          path: "scheduleId",
+          match: { doctorId: doctorId },
+          populate: { path: "doctorId", select: "fname lname qualification" }
+        })
+        .populate("catOwner_id", "fname lname phone")
+        .populate("catId", "name breed");
+
+      const doctorAppointments = appointments.filter(appt => appt.scheduleId);
+
+      // ---- Group by date ----
+      const grouped = {};
+      doctorAppointments.forEach(appt => {
+        const dateKey = appt.scheduleId.date.toISOString().split("T")[0]; 
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push({
+          token: appt.token,
+          catName: appt.catId?.name,
+          breed: appt.catId?.breed,
+          catOwnerName: `${appt.catOwner_id?.fname} ${appt.catOwner_id?.lname}`,
+          phone: appt.catOwner_id?.phone,
+          bookingType: appt.bookingType,
+          time: `${appt.scheduleId.consultationFrom} - ${appt.scheduleId.consultationTo}`,
+          status: appt.status
+        });
+      });
+
+      res.json({ Status: "Success", data: grouped });
+    } catch (err) {
+      console.error("Error fetching doctor appointments:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
 
 app.listen(4000,() => {
 
