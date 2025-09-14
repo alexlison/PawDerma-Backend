@@ -1411,6 +1411,117 @@ app.post("/doctorAppointments", async (req, res) => {
   });
 });
 
+
+// --------------------------- Add Prescription ---------------------------- //
+app.get("/appointment-details/:appointmentId", async (req, res) => {
+  let token = req.headers.token;
+  const { appointmentId } = req.params;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "doctor") {
+      return res.status(401).json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const appointmentData = await appointmentModel
+        .findById(appointmentId)
+        .populate("catId", "name breed")
+        .populate("catOwner_id", "fname lname phone")
+        .populate({
+          path: "scheduleId",
+          populate: { path: "doctorId", select: "fname lname qualification" }
+        });
+
+      if (!appointmentData) {
+        return res.status(404).json({"Status": "AppointmentNotFound" });
+      }
+
+      let response = {
+        _id: appointmentData._id,
+        bookingType: appointmentData.bookingType,
+        status: appointmentData.status,
+        appointmentDate: appointmentData.appointmentDate,
+        cat: appointmentData.catId,
+        owner: appointmentData.catOwner_id,
+        doctor: appointmentData.scheduleId?.doctorId || null,
+      };
+
+      if (appointmentData.bookingType === "GENERAL") {
+        response.symptoms = appointmentData.symptoms;
+      }
+
+      if (appointmentData.bookingType === "SKIN") {
+        response.diseaseImage = appointmentData.skinAnalysis?.diseaseImage || null;
+        response.predictedDisease = appointmentData.skinAnalysis?.predictedDisease || null;
+        response.confidenceScore = appointmentData.skinAnalysis?.confidenceScore || null;
+      }
+
+      res.json(response);
+
+    } catch (err) {
+      console.error("Error fetching appointment details:", err);
+      res.status(500).json({ "Status": "Error" });
+    }
+  });
+});
+
+
+app.post("/add-prescription/:appointmentId", async (req, res) => {
+  const token = req.headers.token;
+  const { appointmentId } = req.params;
+  const { medicine, notes, followUpDate } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (err, decoded) => {
+    if (err || !decoded || decoded.userType !== "doctor") {
+      return res.status(401).json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const appointment = await appointmentModel.findById(appointmentId);
+
+      if (!appointment) {
+        return res.status(404).json({ "Status": "AppointmentNotFound" });
+      }
+
+      if (appointment.status === "COMPLETED") {
+        return res.status(400).json({ "Status": "AlreadyCompleted" });
+      }
+
+      const recordData = {
+        appointmentId: appointment._id,
+        catId: appointment.catId,
+        catOwner_id: appointment.catOwner_id,
+        doctorId: decoded.userId,
+        bookingType: appointment.bookingType,
+        prescription: { medicine, notes, followUpDate: followUpDate || null }
+      };
+
+      if (appointment.bookingType === "GENERAL") {
+        recordData.symptoms = appointment.symptoms;
+      } else if (appointment.bookingType === "SKIN") {
+        recordData.skinAnalysis = {
+          diseaseImage: appointment.skinAnalysis?.diseaseImage || null,
+          predictedDisease: appointment.skinAnalysis?.predictedDisease || null,
+          confidenceScore: appointment.skinAnalysis?.confidenceScore || null
+        };
+      }
+
+      const newRecord = await medicalRecordModel.create(recordData);
+
+      appointment.status = "COMPLETED";
+      await appointment.save();
+
+      res.json({ "Status": "Success"});
+    } catch (error) {
+      console.error("Error adding prescription:", error);
+      res.status(500).json({ "Status": "Error" });
+    }
+  });
+});
+
+
+
+
 app.listen(4000,() => {
 
     console.log("Server Running at port 4000")
