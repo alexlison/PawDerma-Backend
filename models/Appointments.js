@@ -17,8 +17,15 @@ const appointmentSchema = new mongoose.Schema({
     loss_of_appetite: { type: String, enum: ["yes", "no"], default: "no" },
     diarrhea: { type: String, enum: ["yes", "no"], default: "no" }
   },
+  skinAnalysis: {
+  diseaseImage: { type: String },             
+  predictedDisease: { type: String },         
+  confidenceScore: { type: Number },       
+
+  },
+      
   appointmentDate: { type: Date },
-  status: { type: String, enum: ["PENDING", "CONFIRMED", "COMPLETED"],default:"PENDING" }
+  status: { type: String, enum: ["PENDING", "CONFIRMED", "COMPLETED","NOTCOME"],default:"PENDING" }
 });
 
 const appointmentModel = mongoose.model("appointments", appointmentSchema);
