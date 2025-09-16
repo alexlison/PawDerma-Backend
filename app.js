@@ -1520,6 +1520,66 @@ app.post("/add-prescription/:appointmentId", async (req, res) => {
 });
 
 
+// ----------------------- View Prescription --------------------- //
+
+app.post("/viewPrescription", async (req, res) => {
+  let token = req.headers.token;
+  const { appointment_id } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "doctor") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const medicalRecord = await medicalRecordModel
+        .findOne({ appointmentId: appointment_id })
+        .populate("catId", "name breed image dob")
+        .populate("catOwner_id", "fname lname phone")
+        .populate("doctorId", "fname lname qualification specialization");
+
+      if (!medicalRecord) {
+        return res.json({ "Status": "PrescriptionNotFound" });
+      }
+
+      const appointmentData = await appointmentModel
+        .findById(appointment_id)
+        .populate({
+          path: "scheduleId",
+          select: "consultationFrom consultationTo"
+        });
+
+      let response = {
+        prescriptionId: medicalRecord._id,
+        appointmentId: medicalRecord.appointmentId,
+        bookingType: medicalRecord.bookingType,
+        createdAt: medicalRecord.createdAt,
+        cat: medicalRecord.catId,
+        owner: medicalRecord.catOwner_id,
+        doctor: medicalRecord.doctorId,
+        consultationFrom: appointmentData?.scheduleId?.consultationFrom || null,
+        consultationTo: appointmentData?.scheduleId?.consultationTo || null,
+        prescription: medicalRecord.prescription,
+      };
+
+      if (medicalRecord.bookingType === "GENERAL") {
+        response.symptoms = medicalRecord.symptoms;
+      }
+
+      if (medicalRecord.bookingType === "SKIN") {
+        response.skinAnalysis = medicalRecord.skinAnalysis || null;
+      }
+
+      res.json(response);
+
+    } catch (err) {
+      console.error("Error fetching prescription details:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
+
 
 
 app.listen(4000,() => {
