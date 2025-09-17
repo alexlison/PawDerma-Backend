@@ -1580,6 +1580,60 @@ app.post("/viewPrescription", async (req, res) => {
 });
 
 
+// ----------------------- View My Appointments ------------------------------ //
+
+app.post("/viewMyAppointments", async (req, res) => {
+  const token = req.headers.token;
+  const { catOwner_id } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+
+      const myAppointments = await appointmentModel
+        .find({
+          catOwner_id: catOwner_id,
+          status: { $in: ["CONFIRMED", "COMPLETED", "NOTCOME"] },
+        })
+        .populate({
+          path: "scheduleId",
+          select: "consultationFrom consultationTo doctorId",
+          populate: {
+            path: "doctorId",
+            select: "fname lname qualification specialization",
+          },
+        })
+        .populate({
+          path: "catId",
+          select: "name breed image dob",
+        });
+
+      if (!myAppointments || myAppointments.length === 0) {
+        return res.json({ "Status": "NoAppointments" });
+      }
+
+      const response = myAppointments.map((appt) => ({
+        appointmentId: appt._id,
+        bookingType: appt.bookingType,
+        status: appt.status,
+        appointmentDate: appt.appointmentDate,
+        consultationFrom: appt.scheduleId?.consultationFrom || null,
+        consultationTo: appt.scheduleId?.consultationTo || null,
+        cat: appt.catId,
+        doctor: appt.scheduleId?.doctorId || null,
+      }));
+
+      res.json(response);
+
+    } catch (err) {
+      console.error("Error fetching appointments:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
 
 
 app.listen(4000,() => {
