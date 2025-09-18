@@ -534,6 +534,73 @@ app.post("/attenderView",async (req,res) => {
 
 });
 
+// --------------------- Edit Attender ------------------------//
+
+app.put("/updateAttender/:id", async (req, res) => {
+  let token = req.headers.token;
+  let attenderId = req.params.id; 
+  let updateData = { ...req.body };
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "attender") {
+      try {
+       
+        const attender = await attenderModel.findById(attenderId);
+        if (!attender) {
+          return res.json({ "Status": "AttenderNotFound" });
+        }
+
+      
+        delete updateData.email;
+        delete updateData.experience;
+
+
+        if (updateData.oldPassword && updateData.newPassword) {
+          const isMatch = await bcrypt.compare(updateData.oldPassword,attender.password);
+          if (!isMatch) {
+            return res.json({ "Status": "InvalidOldPassword" });
+          }
+  
+          updateData.password = bcrypt.hashSync(updateData.newPassword,10);
+
+          delete updateData.oldPassword;
+          delete updateData.newPassword;
+        } else {
+          delete updateData.password; 
+        }
+       
+      if (updateData.phone) {
+        const phoneExists = await attenderModel.findOne({
+         phone: updateData.phone,
+         _id: { $ne: attenderId } 
+         });
+
+        if (phoneExists) {
+           return res.json({ "Status": "PhoneAlreadyExists" });
+        }
+      }
+
+        const updatedAttenderData = await attenderModel.findByIdAndUpdate(
+          attenderId,
+          updateData,
+          { new: true }
+        );
+
+        res.json({ "Status": "Success" });
+      } catch (error) {
+        console.log("Error -->", error);
+        res.json({ "Status": "Error" });
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
+
+
+
+
+
 // ----------------------- multer setup ----------------------- // 
 
 const storage = multer.diskStorage({
