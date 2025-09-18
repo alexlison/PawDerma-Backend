@@ -22,6 +22,8 @@ const PaymentModel = require("./models/Payments")
 // ===========================================
 
 const PDFDocument = require('pdfkit');
+const medicalRecordModel = require("./models/MedicalRecords")
+const { error } = require("console")
 
 
 
@@ -139,6 +141,10 @@ app.post("/signin", async (req, res) => {
     return res.json({ Status: "Incorrectpassword" });
   }
 
+  if (user.status === false) {
+    return res.json({ "Status": "Deactivated" });
+  }
+
   const payload = { userId: user._id, userType };
   jwt.sign(payload, "PawDermaKEY", { expiresIn: "1d" }, (error, token) => {
     if (error) {
@@ -203,7 +209,7 @@ app.post("/attenderSignup",async (req,res) => {
 
         inputData.email = inputData.email.trim().toLowerCase()
 
-        inputData.password = bcrypt.hashSync(inputData.email,10)
+        inputData.password = bcrypt.hashSync(inputData.password,10)
 
         const emailExists = await attenderModel.findOne({email:inputData.email})
 
@@ -233,6 +239,53 @@ app.post("/attenderSignup",async (req,res) => {
    }
 
 })
+
+// ---------------- Cat Owner Details ----------------
+app.post("/getCatOwnerById", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const user = await CatOwnerModel.findById(id); 
+    if (!user) {
+      return res.json({ Status: "NotFound" });
+    }
+    res.json({ Status: "Success", data: user });
+  } catch (err) {
+    console.error(err);
+    res.json({ Status: "Error" });
+  }
+});
+
+// ---------------- Doctor Details ----------------
+app.post("/getDoctorById", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const user = await doctorModel.findById(id); 
+    if (!user) {
+      return res.json({ Status: "NotFound" });
+    }
+    res.json({ Status: "Success", data: user });
+  } catch (err) {
+    console.error(err);
+    res.json({ Status: "Error" });
+  }
+});
+
+// ---------------- Attender Details ----------------
+app.post("/getAttenderById", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const user = await attenderModel.findById(id); 
+    if (!user) {
+      return res.json({ Status: "NotFound" });
+    }
+    res.json({ Status: "Success", data: user });
+  } catch (err) {
+    console.error(err);
+    res.json({ Status: "Error" });
+  }
+});
+
+
 
 // ----------------------- View All CatOwners ----------------------------------- //
 
@@ -440,6 +493,46 @@ app.post("/attenderStatusUpdate",async (req,res) => {
   }
 });
 
+
+// ----------------------- Attender View ------------------------- //
+
+app.post("/attenderView",async (req,res) => {
+
+  let token = req.headers.token
+
+  let  { userId }  = req.body
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+    
+    if(decoded && decoded.userType === "attender")
+    {
+      try {
+
+        const attenderData = await attenderModel.findById(userId)
+
+        if(!attenderData)
+        {
+          return res.json({"Status":"attenderNotFound"})
+        }
+
+        res.json(attenderData)
+        
+      } catch (err) {
+
+        if(err)
+        {
+          res.json({"Status":"Error"})
+        }
+        
+      }
+    }else{
+
+      res.json({"Status":"Invalid Authentication"})
+    }
+
+  })
+
+});
 
 // ----------------------- multer setup ----------------------- // 
 
@@ -688,7 +781,7 @@ app.put("/updateDoctor/:id", async (req, res) => {
           delete updateData.oldPassword;
           delete updateData.newPassword;
         } else {
-          delete updateData.password; // ensure no accidental overwrite
+          delete updateData.password; 
         }
        
       if (updateData.phone) {
@@ -1035,7 +1128,6 @@ app.post("/create-order", async (req, res) => {
     }
 
     try {
-      // CHECK 1: Verify appointment exists and get its bookingType
       const appointment = await appointmentModel.findById(appointment_id);
       if (!appointment) {
         return res.json({ 
@@ -1044,13 +1136,11 @@ app.post("/create-order", async (req, res) => {
         });
       }
 
-      // CHECK 2: Prevent payment if appointment is already CONFIRMED/COMPLETED
       if (appointment.status !== "PENDING") {
         return res.json({ "Status": "AlreadyConfirmed"});
       }
 
   
-      // CHECK 3: Prevent duplicate payments for this appointment
       const existingPayment = await PaymentModel.findOne({
         appointment_id: appointment_id,
         status: { $in: ["created", "paid"] } // Check for active or completed payments
@@ -1069,7 +1159,6 @@ app.post("/create-order", async (req, res) => {
          return res.json({ "Status": "PaymentFailed"});
       }
 
-      // Convert amount to paise (Razorpay expects amount in smallest currency unit)
       const amountInPaise = amount * 100;
       
       const options = {
@@ -1080,10 +1169,8 @@ app.post("/create-order", async (req, res) => {
         
       };
 
-      // Create order in Razorpay
       const order = await razorpay.orders.create(options);
       
-      // Create payment record in database
       const payment = new PaymentModel({
         appointment_id,
         razorpay_order_id: order.id,
@@ -1138,7 +1225,6 @@ app.post("/verify-payment", async (req, res) => {
     }
 
     try {
-      // Create expected signature - USE THE SAME KEY AS RAZORPAY INIT
       const body = razorpay_order_id + "|" + razorpay_payment_id;
       const expectedSignature = crypto
         .createHmac("sha256", razorpay.key_secret) 
@@ -1146,7 +1232,6 @@ app.post("/verify-payment", async (req, res) => {
         .digest("hex");
 
 
-      // Verify signature
       const isAuthentic = expectedSignature === razorpay_signature;
 
       if (isAuthentic) {
@@ -1157,10 +1242,8 @@ app.post("/verify-payment", async (req, res) => {
           updated_at: Date.now()
         });
 
-        // Find the appointment linked to this payment
         const paymentRecord = await PaymentModel.findById(payment_id);
         
-        // Update appointment status to "CONFIRMED"
         await appointmentModel.findByIdAndUpdate(
           paymentRecord.appointment_id, 
           { 
@@ -1171,7 +1254,6 @@ app.post("/verify-payment", async (req, res) => {
 
         res.json({ "Status": "Success", appointmentId: paymentRecord.appointment_id });
       } else {
-        // Signature verification failed
         await PaymentModel.findByIdAndUpdate(payment_id, {
           status: "failed",
           updated_at: Date.now()
@@ -1375,7 +1457,7 @@ app.post("/doctorAppointments", async (req, res) => {
     }
 
     try {
-      const appointments = await appointmentModel.find({ status: "CONFIRMED" })
+      const appointments = await appointmentModel.find({ status: { $in: ["CONFIRMED", "COMPLETED","NOTCOME"] } })
         .populate({
           path: "scheduleId",
           match: { doctorId: doctorId },
@@ -1393,6 +1475,7 @@ app.post("/doctorAppointments", async (req, res) => {
         if (!grouped[dateKey]) grouped[dateKey] = [];
         grouped[dateKey].push({
           token: appt.token,
+           _id: appt._id,
           catName: appt.catId?.name,
           breed: appt.catId?.breed,
           catOwnerName: `${appt.catOwner_id?.fname} ${appt.catOwner_id?.lname}`,
@@ -1425,11 +1508,12 @@ app.get("/appointment-details/:appointmentId", async (req, res) => {
     try {
       const appointmentData = await appointmentModel
         .findById(appointmentId)
-        .populate("catId", "name breed")
+        .populate("catId", "name breed image dob")
         .populate("catOwner_id", "fname lname phone")
         .populate({
           path: "scheduleId",
-          populate: { path: "doctorId", select: "fname lname qualification" }
+          select: "consultationFrom consultationTo doctorId",
+          populate: { path: "doctorId", select: "fname lname qualification specialization" }
         });
 
       if (!appointmentData) {
@@ -1441,9 +1525,12 @@ app.get("/appointment-details/:appointmentId", async (req, res) => {
         bookingType: appointmentData.bookingType,
         status: appointmentData.status,
         appointmentDate: appointmentData.appointmentDate,
+        App_token: appointmentData.token, 
         cat: appointmentData.catId,
         owner: appointmentData.catOwner_id,
         doctor: appointmentData.scheduleId?.doctorId || null,
+        consultationFrom: appointmentData.scheduleId?.consultationFrom || null,
+        consultationTo: appointmentData.scheduleId?.consultationTo || null,
       };
 
       if (appointmentData.bookingType === "GENERAL") {
@@ -1457,6 +1544,7 @@ app.get("/appointment-details/:appointmentId", async (req, res) => {
       }
 
       res.json(response);
+      
 
     } catch (err) {
       console.error("Error fetching appointment details:", err);
@@ -1519,7 +1607,6 @@ app.post("/add-prescription/:appointmentId", async (req, res) => {
   });
 });
 
-
 // ----------------------- View Prescription --------------------- //
 
 app.post("/viewPrescription", async (req, res) => {
@@ -1552,6 +1639,8 @@ app.post("/viewPrescription", async (req, res) => {
       let response = {
         prescriptionId: medicalRecord._id,
         appointmentId: medicalRecord.appointmentId,
+         appointmentDate: appointmentData.appointmentDate,
+        App_token: appointmentData.token, 
         bookingType: medicalRecord.bookingType,
         createdAt: medicalRecord.createdAt,
         cat: medicalRecord.catId,
@@ -1578,7 +1667,6 @@ app.post("/viewPrescription", async (req, res) => {
     }
   });
 });
-
 
 // ----------------------- View My Appointments ------------------------------ //
 
@@ -1634,6 +1722,7 @@ app.post("/viewMyAppointments", async (req, res) => {
     }
   });
 });
+
 
 
 app.listen(4000,() => {
