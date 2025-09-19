@@ -24,6 +24,7 @@ const PaymentModel = require("./models/Payments")
 const PDFDocument = require('pdfkit');
 const medicalRecordModel = require("./models/MedicalRecords")
 const { error } = require("console")
+const attenderSchedulesModel = require("./models/AttenderSchedules")
 
 
 
@@ -595,6 +596,50 @@ app.put("/updateAttender/:id", async (req, res) => {
       res.json({ "Status": "Invalid Authentication" });
     }
   });
+});
+
+// ------------------------- Attender Schedules --------------------//
+
+app.post("/attenderSchedules",async (req,res) => {
+
+  let token = req.headers.token
+
+  let inputData = req.body
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+  
+    if(decoded && decoded.userType === "attender")
+    {
+      try {
+
+        const exists = await attenderSchedulesModel.findOne({
+          attenderId:inputData.attenderId,
+          date : inputData.date,
+          vaccinationFrom : inputData.vaccinationFrom,
+          vaccinationTo : inputData.vaccinationTo,
+        });
+        
+          if (exists) {
+          return res.json({ Status: "ScheduleAlreadyExists" });
+          }
+
+        const newSchedule = new attenderSchedulesModel(inputData)
+        await newSchedule.save() 
+
+        res.json({"Status":"Success"})
+        
+      } catch (error) {
+
+        
+        res.json({ Status: "Error" });
+        
+      }
+    }else {
+         res.json({ Status: "Invalid Authentication" });
+    }
+
+  });
+
 });
 
 
