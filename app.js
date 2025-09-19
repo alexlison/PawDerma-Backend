@@ -1235,6 +1235,9 @@ app.get("/getSchedule/:id",async (req,res) => {
 
 });
 
+
+//------------------------------ General Consultation ----------------------------//
+
 // ------------------------- Get doctor details for  General Appointment Booking ---------------------------- // 
 
 app.get("/getDoctorDetails",async (req,res) => {
@@ -1339,6 +1342,127 @@ app.post("/generalBooking", async (req, res) => {
     }
   });
 });
+
+
+//------------------------------ Vaccination  ----------------------------//
+
+// ------------------------- Get Attender details for Vaccination Booking ---------------------------- // 
+
+app.get("/getAttenderDetails",async (req,res) => {
+
+  let token = req.headers.token
+  let booking_date = req.query.date
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+   
+    if(decoded && decoded.userType === "cat_owner")
+    {
+      try {
+
+        const availableAttenders = await attenderSchedulesModel.find({
+          date: booking_date,
+          remaining_slots: {$gt : 0},
+        }).populate("attenderId");
+
+        if (!availableAttenders || availableAttenders.length === 0)
+        {
+          return res.json({"Status":"NoAttendersForTHisDate"})
+        }
+
+        res.json(availableAttenders)
+
+        
+      } catch (err) {
+
+        if(err)
+        {
+          console.log("Error --> ",err)
+          res.json({"Status":"Error"})
+        }
+        
+      }
+    }else{
+
+      res.json({"Status":"Invalid Authentication"})
+    }
+
+  });
+});
+
+
+//------------------------------ Vaccination Appointment Booking ---------------------------//
+
+app.post("/vaccinationBooking", async (req, res) => {
+  const token = req.headers.token;
+  const BookingData = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const { catId, vaccineScheduleId, date, vaccine } = BookingData;
+
+      const alreadyTaken = await appointmentModel.findOne({
+        catId,
+        vaccine,
+        bookingType: "VACCINATION",
+      });
+
+      if (alreadyTaken) {
+        return res.json({ "Status": "VaccineAlreadyTaken" });
+      }
+
+      const schedule = await attenderSchedulesModel.findOneAndUpdate(
+        {
+          _id: vaccineScheduleId,
+          remaining_slots: { $gt: 0 },
+        },
+        { $inc: { remaining_slots: -1 } },
+        { new: true }
+      );
+
+      if (!schedule) {
+        return res.json({ "Status": "NoAvailableSlot" });
+      }
+
+      const existingAppointment = await appointmentModel.findOne({
+        catId,
+        vaccineScheduleId,
+      });
+
+      if (existingAppointment) {
+        await attenderSchedulesModel.findByIdAndUpdate(schedule._id, {
+          $inc: { remaining_slots: 1 },
+        });
+        return res.json({ "Status": "DuplicateBookingNotAllowed" });
+      }
+
+      const tokenNumber =
+        (await appointmentModel.countDocuments({ vaccineScheduleId })) + 1;
+
+      const newAppointment = new appointmentModel({
+        catOwner_id: decoded.userId,
+        catId,
+        attenderId: schedule.attenderId,
+        vaccineScheduleId,
+        appointmentDate: new Date(date),
+        vaccine,
+        token: tokenNumber,
+        bookingType: "VACCINATION",
+      });
+
+      await newAppointment.save();
+
+      res.json({ "Status": "Success", appointmentId: newAppointment._id });
+    } catch (err) {
+      console.error("Error -->", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
 
 
 // -------------------------- RazorPay Integration --------------------------- //
