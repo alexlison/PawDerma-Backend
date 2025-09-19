@@ -620,7 +620,7 @@ app.post("/attenderSchedules",async (req,res) => {
         });
         
           if (exists) {
-          return res.json({ Status: "ScheduleAlreadyExists" });
+          return res.json({ "Status": "ScheduleAlreadyExists" });
           }
 
         const newSchedule = new attenderSchedulesModel(inputData)
@@ -631,16 +631,103 @@ app.post("/attenderSchedules",async (req,res) => {
       } catch (error) {
 
         
-        res.json({ Status: "Error" });
+        res.json({ "Status": "Error" });
         
       }
     }else {
-         res.json({ Status: "Invalid Authentication" });
+         res.json({ "Status": "Invalid Authentication" });
     }
 
   });
 
 });
+
+//--------------------------- Update Attender Schedules ---------------------------- //
+
+// ------------- Attender Schedule Details fetch in Edit Form ------------------- //
+
+app.get("/getAttenderSchedule/:id",async (req,res) => {
+
+  let token = req.headers.token
+  let scheduleId = req.params.id
+
+  jwt.verify(token,"PawDermaKEY",async (error,decoded) => {
+
+    if(decoded && decoded.userType === "attender")
+    {
+      try{
+
+        const scheduleData = await attenderSchedulesModel.findById(scheduleId)
+
+        if(!scheduleData)
+        {
+          return res.json({"Status":"scheduleNotFound"})
+        }
+
+        res.json(scheduleData)
+      }catch(err){
+
+      if(err)
+      {
+        console.log("Error -> ",err)
+        res.json({"Status":"Error"})
+      }
+    }
+
+  }else{
+
+    res.json({"Status":"Invalid Authentication"})
+  }
+  });
+
+});
+
+
+
+app.put("/updateAttenderSchedule/:id", async (req, res) => {
+  let token = req.headers.token;
+  let scheduleId = req.params.id;   
+  let updateScheduleData = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "attender") {
+      try {
+        
+        delete updateScheduleData.attenderId;
+
+        const exists = await attenderSchedulesModel.findOne({
+          attenderId: decoded.userId, 
+          date: updateScheduleData.date,
+          vaccinationFrom: updateScheduleData.vaccinationFrom,
+          vaccinationTo: updateScheduleData.vaccinationTo,
+          _id: { $ne: scheduleId }, 
+        });
+
+        if (exists) {
+          return res.json({"Status": "ScheduleAlreadyExists"});
+        }
+
+        const updateSchedule = await attenderSchedulesModel.findByIdAndUpdate(
+          scheduleId,
+          updateScheduleData,
+          { new: true }
+        );
+
+        if (!updateSchedule) {
+          return res.json({ "Status": "ScheduleIdNotFound" });
+        }
+
+        res.json({ "Status": "Success" });
+      } catch (err) {
+        console.error("Update Error:", err);
+        res.json({"Status": "Error"});
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
+
 
 
 
