@@ -682,7 +682,7 @@ app.get("/getAttenderSchedule/:id",async (req,res) => {
 
 });
 
-
+//update api
 
 app.put("/updateAttenderSchedule/:id", async (req, res) => {
   let token = req.headers.token;
@@ -728,7 +728,33 @@ app.put("/updateAttenderSchedule/:id", async (req, res) => {
   });
 });
 
+// -------------------- View Attender Schedules --------------------- //
 
+app.post("/viewAttenderSchedules", async (req, res) => {
+  let token = req.headers.token;
+  let { attenderId } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (decoded && decoded.userType === "attender") {
+      try {
+        const attenderSchedules = await attenderSchedulesModel.find({ attenderId: attenderId });
+
+
+        if (!attenderSchedules || attenderSchedules.length === 0) {
+          return res.json({ "Status": "SchedulesNotFound" });
+        }
+
+        res.json(attenderSchedules);
+
+      } catch (err) {
+        
+        res.json({ "Status": "Error"});
+      }
+    } else {
+      res.json({ "Status": "Invalid Authentication" });
+    }
+  });
+});
 
 
 
