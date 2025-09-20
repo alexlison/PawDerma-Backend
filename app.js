@@ -356,6 +356,76 @@ app.post("/catOwnerStatusUpdate",async (req,res) => {
 
 })
 
+// ------------------------------- Edit CatOwner Details ----------------------//
+
+app.put("/updateCatOwner", (req, res) => {
+  const token = req.headers.token;
+  const updateData = { ...req.body };
+  const catOwnerId = updateData.id; 
+
+  if (!catOwnerId) {
+    return res.json({ Status: "MissingCatOwnerId" });
+  }
+
+
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "cat_owner") {
+      return res.json({ Status: "Invalid Authentication" });
+    }
+
+  
+    try {
+      const catOwner = await CatOwnerModel.findById(catOwnerId);
+      if (!catOwner) {
+        return res.json({ "Status": "catOwnerNotFound" });
+      }
+
+      delete updateData.email;
+      delete updateData.id; 
+
+      if (updateData.oldPassword && updateData.newPassword) {
+        const isMatch = await bcrypt.compare(updateData.oldPassword, catOwner.password);
+        if (!isMatch) {
+          return res.json({ "Status": "InvalidOldPassword" });
+        }
+
+        updateData.password = await bcrypt.hash(updateData.newPassword, 10);
+        delete updateData.oldPassword;
+        delete updateData.newPassword;
+      } else {
+        delete updateData.password;
+      }
+
+      if (updateData.phone) {
+        const phoneExists = await CatOwnerModel.findOne({
+          phone: updateData.phone,
+          _id: { $ne: catOwnerId },
+        });
+
+        if (phoneExists) {
+          return res.json({ "Status": "PhoneAlreadyExists" });
+        }
+      }
+
+      const updatedData = await CatOwnerModel.findByIdAndUpdate(
+        catOwnerId,
+        updateData,
+        { new: true }
+      );
+
+      res.json({ "Status": "Success" });
+    } catch (err) {
+      console.log("Error -->", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
+
+
+
+
 // ----------------------- View All Doctors  ----------------------------------- //
 
 app.post("/viewDoctors",async (req,res) => {
