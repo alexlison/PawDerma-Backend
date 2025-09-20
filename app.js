@@ -879,12 +879,10 @@ app.put("/updateCat/:id", upload.single("image"), async (req, res) => {
     }
 
     try {
-      // Prevent ownership change
       if (updateCatData.catOwner_id) {
         delete updateCatData.catOwner_id;
       }
 
-      // Handle image update (if file uploaded via Postman)
       if (req.file) {
         updateCatData.image = `/uploads/cats/${req.file.filename}`;
       }
@@ -1445,7 +1443,6 @@ app.post("/vaccinationBooking", async (req, res) => {
       const newAppointment = new appointmentModel({
         catOwner_id: decoded.userId,
         catId,
-        attenderId: schedule.attenderId,
         vaccineScheduleId,
         appointmentDate: new Date(date),
         vaccine,
@@ -1492,7 +1489,7 @@ app.post("/create-order", async (req, res) => {
   
       const existingPayment = await PaymentModel.findOne({
         appointment_id: appointment_id,
-        status: { $in: ["created", "paid"] } // Check for active or completed payments
+        status: { $in: ["created", "paid"] } 
       });
 
       if (existingPayment) {
@@ -1617,7 +1614,6 @@ app.post("/verify-payment", async (req, res) => {
   });
 });
 
-
 // ----------------------- Generate Receipt PDF --------------------------- //
 app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
   let token = req.headers.token;
@@ -1629,12 +1625,17 @@ app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
     }
 
     try {
+      // Populate both doctorSchedule and attenderSchedule
       const appointment = await appointmentModel.findById(appointmentId)
         .populate("catOwner_id", "fname mname lname phone")
         .populate("catId", "name")
         .populate({
           path: "scheduleId",
           populate: { path: "doctorId", select: "fname mname lname qualification" },
+        })
+        .populate({
+          path: "vaccineScheduleId",
+          populate: { path: "attenderId", select: "Name qualification" },
         });
 
       if (!appointment) return res.status(404).send("Appointment not found");
@@ -1650,9 +1651,9 @@ app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
       );
       doc.pipe(res);
 
-      const primaryColor = "#9d1328"; // dark red
+      const primaryColor = "#9d1328";
 
-      // ---------------- HEADER ----------------
+      // HEADER
       try {
         const logoPath = path.join(__dirname, "uploads", "pawderma-logo.png");
         if (fs.existsSync(logoPath)) {
@@ -1662,40 +1663,39 @@ app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
         console.log("Logo not found, skipping...");
       }
 
-      // Clinic Info (right)
       doc.fontSize(10).fillColor("#000").font("Helvetica")
         .text("MC Road, Thrissur", 400, 50, { align: "right" })
         .text("Kerala 682001", 400, 65, { align: "right" })
         .text("Phone: +91 7836627882", 400, 80, { align: "right" })
         .text("Email: pawderma@gmail.com", 400, 95, { align: "right" });
 
-  
-      const marginSpace = 25;
-      const lineYPosition = 95 + marginSpace; 
+      doc.moveDown(3);
 
-      doc.moveTo(50, lineYPosition)   
-        .lineTo(550, lineYPosition)   
-        .stroke();
-    
-      doc.moveDown(5) 
+      // HR line before title
+      doc.moveTo(50, 125).lineTo(550, 125).lineWidth(1).stroke(primaryColor);
 
-      // Title centered
       doc.fontSize(13).fillColor(primaryColor).font("Helvetica-Bold")
-        .text("APPOINTMENT RECEIPT", 0, 130, { align: "center", underline: true });
+        .text("APPOINTMENT RECEIPT", 0, 135, { align: "center", underline: true });
 
-      // ---------------- RECEIPT INFO ----------------
+      // RECEIPT INFO
       const now = new Date();
+      const receiptNo = `PD-${appointmentId.toString().slice(-6)}`;
+      
+      // Receipt No with badge background - more visible color
+      const receiptNoWidth = doc.widthOfString(`Receipt No: ${receiptNo}`) + 20;
+      doc.rect(50, 170, receiptNoWidth, 18).fill("#fff3cd").stroke("#856404");
       doc.fontSize(10).fillColor("#000").font("Helvetica-Bold")
-        .text(`Receipt No: PD-${appointmentId.toString().slice(-6)}`, 50, 170)
-        .font("Helvetica")
-        .text(`Date: ${now.toLocaleDateString()}`, 400, 170, { align: "right" })
-        .text(`Time: ${now.toLocaleTimeString()}`, 400, 185, { align: "right" });
+        .text(`Receipt No: ${receiptNo}`, 60, 175);
 
-      // ---------------- CUSTOMER (bordered card) ----------------
+      doc.font("Helvetica").fillColor("#000")
+        .text(`Date: ${now.toLocaleDateString()}`, 400, 175, { align: "right" })
+        .text(`Time: ${now.toLocaleTimeString()}`, 400, 190, { align: "right" });
+
+      // CUSTOMER
       doc.moveDown(2);
-      const custTop = doc.y;
-      doc.rect(50, custTop, 500, 70).stroke(); // card border
-      doc.rect(50, custTop, 500, 20).fill(primaryColor).stroke(); // header background
+      const custTop = doc.y + 10;
+      doc.rect(50, custTop, 500, 70).stroke();
+      doc.rect(50, custTop, 500, 20).fill(primaryColor).stroke();
       doc.fillColor("#fff").font("Helvetica-Bold").text("Customer Details", 55, custTop + 5);
 
       doc.fillColor("#000").font("Helvetica").fontSize(10);
@@ -1708,74 +1708,105 @@ app.get("/api/generate-receipt/:appointmentId", async (req, res) => {
 
       doc.moveDown(5);
 
-      // ---------------- APPOINTMENT ----------------
-      doc.rect(50, doc.y, 500, 20).fill(primaryColor).stroke();
-      doc.fillColor("#fff").font("Helvetica-Bold").text("Appointment Details", 55, doc.y + 5);
+      // APPOINTMENT DETAILS
+      doc.rect(50, doc.y, 500, 25).fill(primaryColor).stroke();
+      doc.fillColor("#fff").font("Helvetica-Bold").text("Appointment Details", 55, doc.y + 8);
       doc.moveDown(2);
 
-      // Table headers
       const tableTop = doc.y;
-      const colWidths = [50, 70, 120, 100, 80, 80];
-      const headers = ["Token", "Date", "Doctor", "Qualification", "Type", "Cat"];
+      let headers, colWidths, rowData;
 
+      if (appointment.bookingType === "VACCINATION") {
+        headers = ["Token", "Date", "Attender", "Qualification", "Vaccine", "Cat"];
+        colWidths = [50, 70, 100, 100, 80, 70]; // Reduced widths to fit page
+
+        const attenderName = appointment.vaccineScheduleId?.attenderId?.Name || "N/A";
+        const attenderQual = appointment.vaccineScheduleId?.attenderId?.qualification || "N/A";
+        const tokenWithBadge = appointment.token || "-";
+
+        rowData = [
+          tokenWithBadge,
+          appointment.appointmentDate?.toLocaleDateString() || "-",
+          attenderName,
+          attenderQual,
+          appointment.vaccine || "-",
+          appointment.catId?.name || "-",
+        ];
+      } else {
+        headers = ["Token", "Date", "Doctor", "Qualification", "Type", "Cat"];
+        colWidths = [50, 70, 100, 100, 80, 70]; // Reduced widths to fit page
+
+        const doctorName = appointment.scheduleId?.doctorId
+          ? `${appointment.scheduleId.doctorId.fname} ${appointment.scheduleId.doctorId.lname}`
+          : "N/A";
+        const tokenWithBadge = appointment.token || "-";
+
+        rowData = [
+          tokenWithBadge,
+          appointment.appointmentDate?.toLocaleDateString() || "-",
+          doctorName,
+          appointment.scheduleId?.doctorId?.qualification || "-",
+          appointment.bookingType,
+          appointment.catId?.name || "-",
+        ];
+      }
+
+      // Calculate total width to ensure it fits (should be 470px max for A4 with margins)
+      const totalTableWidth = colWidths.reduce((sum, width) => sum + width, 0);
+      
+      // Draw headers (keep same height)
       let x = 50;
       headers.forEach((h, i) => {
-        doc.rect(x, tableTop, colWidths[i], 20).fill(primaryColor).stroke();
-        doc.fillColor("#fff").font("Helvetica-Bold").fontSize(10)
-          .text(h, x, tableTop + 5, { width: colWidths[i], align: "center" });
+        doc.rect(x, tableTop, colWidths[i], 25).fill(primaryColor).stroke();
+        doc.fillColor("#fff").font("Helvetica-Bold").fontSize(9) // Reduced font size
+          .text(h, x + 2, tableTop + 8, { width: colWidths[i] - 4, align: "center" });
         x += colWidths[i];
       });
 
-      // Table row
-      const rowTop = tableTop + 20;
-      const doctorName = `${appointment.scheduleId.doctorId.fname} ${appointment.scheduleId.doctorId.lname}`;
-      const rowData = [
-        appointment.token,
-        appointment.appointmentDate.toLocaleDateString(),
-        doctorName,
-        appointment.scheduleId.doctorId.qualification,
-        appointment.bookingType,
-        appointment.catId.name,
-      ];
-
+      // Row with increased padding
+      const rowTop = tableTop + 25;
       x = 50;
       rowData.forEach((d, i) => {
-        doc.rect(x, rowTop, colWidths[i], 20).stroke();
-        doc.fillColor("#000").font("Helvetica").fontSize(10)
-          .text(d.toString(), x, rowTop + 5, { width: colWidths[i], align: "center" });
+        if (i === 0) { // Token column - add badge background
+          doc.rect(x, rowTop, colWidths[i], 35).stroke();
+          // Token badge background with stronger color
+          const tokenBadgeWidth = Math.min(doc.widthOfString(d.toString()) + 12, colWidths[i] - 8);
+          const tokenBadgeX = x + (colWidths[i] - tokenBadgeWidth) / 2;
+          doc.rect(tokenBadgeX, rowTop + 8, tokenBadgeWidth, 18).fill("#d4edda").stroke("#28a745");
+          doc.fillColor("#000").font("Helvetica-Bold").fontSize(9)
+            .text(d.toString(), x + 2, rowTop + 15, { width: colWidths[i] - 4, align: "center" });
+        } else {
+          doc.rect(x, rowTop, colWidths[i], 35).stroke();
+          doc.fillColor("#000").font("Helvetica").fontSize(9) // Reduced font size
+            .text(d.toString(), x + 4, rowTop + 12, { width: colWidths[i] - 8, align: "left" });
+        }
         x += colWidths[i];
       });
 
-      // ---------------- PAYMENT ----------------
+      // PAYMENT DETAILS
       doc.moveDown(4);
       const payTop = doc.y;
-      doc.rect(50, payTop, 500, 80).stroke(); // card border
-      doc.rect(50, payTop, 500, 20).fill(primaryColor).stroke(); // header bg
+      doc.rect(50, payTop, 500, 80).stroke();
+      doc.rect(50, payTop, 500, 20).fill(primaryColor).stroke();
       doc.fillColor("#fff").font("Helvetica-Bold").text("Payment Details", 55, payTop + 5);
 
       doc.fillColor("#000").font("Helvetica").fontSize(10);
       doc.text(`Amount: INR ${payment.amount}`, 60, payTop + 30);
-      
-      doc.font('Helvetica')
-         .fillColor('#000000')   
-         .text('Status:', 60, payTop + 45);                      
 
-      
-      doc.font('Helvetica-Bold')      
-      .fillColor(payment.status.toLowerCase() === "paid" ? "#0caf2c" : "red")
-      .text(payment.status.toUpperCase(), 60 + doc.widthOfString('Status: ') + 2, payTop + 45);
+      doc.font("Helvetica")
+        .fillColor("#000")
+        .text("Status:", 60, payTop + 45);
+
+      doc.font("Helvetica-Bold")
+        .fillColor(payment.status.toLowerCase() === "paid" ? "#0caf2c" : "red")
+        .text(payment.status.toUpperCase(), 60 + doc.widthOfString("Status: ") + 2, payTop + 45);
+
       doc.fillColor("#000").text(`Payment Date: ${payment.updated_at.toLocaleDateString()}`, 60, payTop + 60);
 
-      // ---------------- FOOTER ----------------
+      // FOOTER
       doc.moveTo(50, 750).lineTo(550, 750).stroke();
-
-      doc.moveDown(2);
       doc.fontSize(9).fillColor("#000")
-          
-       .text("Thank you for choosing PawDerma for your pet care needs.", 50, 770, { 
-       align: "center" 
-       });
-
+        .text("Thank you for choosing PawDerma for your pet care needs.", 50, 770, { align: "center" });
 
       doc.end();
     } catch (err) {
@@ -2016,6 +2047,103 @@ app.post("/viewPrescription", async (req, res) => {
     }
   });
 });
+
+
+// -------------------------- Attender View Vaccination ------------------------//
+
+app.post("/VaccinationsView", async (req, res) => {
+  let token = req.headers.token;
+  let { attenderId } = req.body;
+
+  jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+    if (error || !decoded || decoded.userType !== "attender") {
+      return res.json({ "Status": "Invalid Authentication" });
+    }
+
+    try {
+      const attenderObjectId = mongoose.Types.ObjectId.isValid(attenderId)
+        ? new mongoose.Types.ObjectId(attenderId)
+        : null;
+
+      const appointments = await appointmentModel
+        .find({ status: { $in: ["CONFIRMED", "COMPLETED", "NOTCOME"] } })
+        .populate({
+          path: "vaccineScheduleId",
+          match: { attenderId: attenderObjectId },
+          populate: { path: "attenderId", select: "Name qualification" }
+        })
+        .populate("catOwner_id", "fname lname phone")
+        .populate("catId", "name breed");
+
+      const attenderAppointments = appointments.filter(
+        appt => appt.vaccineScheduleId
+      );
+
+      const grouped = {};
+      attenderAppointments.forEach(appt => {
+        try {
+          const rawDate = appt.vaccineScheduleId.date;
+
+          const dateKey = rawDate instanceof Date
+            ? rawDate.toISOString().split("T")[0]
+            : new Date(rawDate).toISOString().split("T")[0];
+
+          if (!grouped[dateKey]) grouped[dateKey] = [];
+
+          grouped[dateKey].push({
+            token: appt.token,
+            _id: appt._id,
+            catName: appt.catId?.name || "",
+            breed: appt.catId?.breed || "",
+            catOwnerName: `${appt.catOwner_id?.fname || ""} ${appt.catOwner_id?.lname || ""}`.trim(),
+            phone: appt.catOwner_id?.phone || "",
+            bookingType: appt.bookingType || "VACCINATION",
+            time: `${appt.vaccineScheduleId.vaccinationFrom} - ${appt.vaccineScheduleId.vaccinationTo}`,
+            status: appt.status
+          });
+        } catch (err) {
+          console.error("Invalid appointment date:", err);
+        }
+      });
+
+      res.json({ "Status": "Success", data: grouped });
+    } catch (err) {
+      console.error("Error fetching attender vaccinations:", err);
+      res.json({ "Status": "Error" });
+    }
+  });
+});
+
+
+// ------------------------ Attender Vaccination Status Update -----------------//
+app.post("/vaccinationStatusUpdate/:appointment_id", async (req, res) => {
+  try {
+    const { appointment_id } = req.params;
+
+    if (!appointment_id) {
+      return res.json({ Status: "IdNotFound" });
+    }
+
+    const vaccination = await appointmentModel.findById(appointment_id);
+
+    if (!vaccination) {
+      return res.json({ Status: "VaccinationNotFound" });
+    }
+
+    vaccination.status = "COMPLETED";
+
+    await vaccination.save();
+
+    return res.json({ Status: "Success" });
+
+  } catch (error) {
+    console.error("Error Fetching Vaccination Data:", error);
+    return res.json({ Status: "Error" });
+  }
+});
+
+
+
 
 // ----------------------- View My Appointments ------------------------------ //
 
