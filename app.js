@@ -2049,6 +2049,136 @@ app.post("/viewPrescription", async (req, res) => {
 });
 
 
+/// --------------------- Doctor Completed Cats For Medical Records ---------------- //
+
+app.post("/doctorCompletedCats", async (req, res) => {
+  try {
+    const token = req.headers.token;
+    const { doctorId } = req.body;
+
+    jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+      if (error || !decoded || decoded.userType !== "doctor") {
+        return res.json({ "Status": "Invalid Authentication" });
+      }
+
+      try {
+        const appointments = await appointmentModel
+          .find({ status: "COMPLETED" })
+          .populate({
+            path: "scheduleId",
+            select: "doctorId",
+          })
+          .populate("catId", "name breed")
+          .populate("catOwner_id", "fname lname phone");
+
+        const filteredAppointments = appointments.filter(
+          appt =>
+            appt.scheduleId &&
+            appt.scheduleId.doctorId.toString() === doctorId.toString()
+        );
+
+        if (!filteredAppointments.length) {
+          return res.json({ "Status": "NotFound", data: [] });
+        }
+
+        const grouped = {};
+        filteredAppointments.forEach(appt => {
+          if (appt.catId && !grouped[appt.catId._id]) {
+            grouped[appt.catId._id] = {
+              catId: appt.catId._id,
+              catName: appt.catId.name,
+              breed: appt.catId.breed,
+              ownerName: `${appt.catOwner_id?.fname} ${appt.catOwner_id?.lname}`,
+              phone: appt.catOwner_id?.phone
+            };
+          }
+        });
+
+        return res.json({ "Status": "Success", data: Object.values(grouped) });
+      } catch (err) {
+        console.error("Error fetching doctor's completed cats:", err);
+        return res.json({ "Status": "Error" });
+      }
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+   
+  }
+});
+
+
+
+// ------------------------- Medical Record ---------------------------------- //
+
+app.get("/medicalRecords/:catId", async (req, res) => {
+  try {
+    const token = req.headers.token;
+    const { catId } = req.params;
+
+    jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+      if (error || !decoded || decoded.userType !== "doctor") {
+        return res.json({ "Status": "Invalid Authentication" });
+      }
+
+      const doctorId = decoded.userId;
+
+      const appointments = await appointmentModel.find({
+        catId,
+        status: "COMPLETED"
+      })
+        .populate("catId", "name breed")
+        .populate("catOwner_id", "fname lname phone")
+        .populate({
+          path: "vaccineScheduleId",
+          populate: { path: "attenderId", select: "Name qualification" }
+        })
+        .populate({
+          path: "scheduleId",
+          select: "doctorId"
+        });
+
+      const filteredAppointments = appointments.filter(
+        appt =>
+          (appt.scheduleId && appt.scheduleId.doctorId.toString() === doctorId.toString()) ||
+          appt.bookingType === "VACCINATION"
+      );
+
+      if (!filteredAppointments.length) {
+        return res.json({ Status: "NotFound", data: [] });
+      }
+
+      const result = filteredAppointments.map(appt => ({
+        appointmentId: appt._id,
+        token: appt.token,
+        bookingType: appt.bookingType,
+        catName: appt.catId?.name,
+        breed: appt.catId?.breed,
+        ownerName: `${appt.catOwner_id?.fname || ""} ${appt.catOwner_id?.lname || ""}`.trim(),
+        phone: appt.catOwner_id?.phone || "",
+        status: appt.status,
+        time: appt.time,
+        recordAction:
+          appt.bookingType === "VACCINATION"
+            ? {
+                type: "vaccination",
+                vaccineName: appt.vaccine || "Unknown", 
+                attender: appt.vaccineScheduleId?.attenderId?.Name || "N/A"
+              }
+            : {
+                type: "prescription",
+                button: "View Prescription"
+              }
+      }));
+
+      res.json({ "Status": "Success", data: result });
+    });
+  } catch (err) {
+    console.error("Error fetching doctor's completed records:", err);
+    res.json({ "Status": "Error" });
+  }
+});
+
+
 // -------------------------- Attender View Vaccination ------------------------//
 
 app.post("/VaccinationsView", async (req, res) => {
@@ -2121,24 +2251,24 @@ app.post("/vaccinationStatusUpdate/:appointment_id", async (req, res) => {
     const { appointment_id } = req.params;
 
     if (!appointment_id) {
-      return res.json({ Status: "IdNotFound" });
+      return res.json({ "Status": "IdNotFound" });
     }
 
     const vaccination = await appointmentModel.findById(appointment_id);
 
     if (!vaccination) {
-      return res.json({ Status: "VaccinationNotFound" });
+      return res.json({ "Status": "VaccinationNotFound" });
     }
 
     vaccination.status = "COMPLETED";
 
     await vaccination.save();
 
-    return res.json({ Status: "Success" });
+    return res.json({ "Status": "Success" });
 
   } catch (error) {
     console.error("Error Fetching Vaccination Data:", error);
-    return res.json({ Status: "Error" });
+    return res.json({ "Status": "Error" });
   }
 });
 
