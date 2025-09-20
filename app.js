@@ -2122,19 +2122,20 @@ app.get("/medicalRecords/:catId", async (req, res) => {
 
       const doctorId = decoded.userId;
 
-      const appointments = await appointmentModel.find({
+    const appointments = await appointmentModel.find({
         catId,
-        status: "COMPLETED"
+        status: "COMPLETED",
       })
         .populate("catId", "name breed")
         .populate("catOwner_id", "fname lname phone")
         .populate({
           path: "vaccineScheduleId",
-          populate: { path: "attenderId", select: "Name qualification" }
+          select: "date",
+          populate: { path: "attenderId", select: "Name qualification" },
         })
         .populate({
           path: "scheduleId",
-          select: "doctorId"
+          select: "doctorId date",
         });
 
       const filteredAppointments = appointments.filter(
@@ -2147,27 +2148,30 @@ app.get("/medicalRecords/:catId", async (req, res) => {
         return res.json({ Status: "NotFound", data: [] });
       }
 
-      const result = filteredAppointments.map(appt => ({
+        const result = filteredAppointments.map((appt) => ({
         appointmentId: appt._id,
-        token: appt.token,
         bookingType: appt.bookingType,
         catName: appt.catId?.name,
         breed: appt.catId?.breed,
         ownerName: `${appt.catOwner_id?.fname || ""} ${appt.catOwner_id?.lname || ""}`.trim(),
         phone: appt.catOwner_id?.phone || "",
         status: appt.status,
-        time: appt.time,
+        
+        date:
+          appt.bookingType === "VACCINATION"
+            ? appt.vaccineScheduleId?.date
+            : appt.scheduleId?.date || null,
         recordAction:
           appt.bookingType === "VACCINATION"
             ? {
                 type: "vaccination",
-                vaccineName: appt.vaccine || "Unknown", 
-                attender: appt.vaccineScheduleId?.attenderId?.Name || "N/A"
+                vaccineName: appt.vaccine || "Unknown",
+                attender: appt.vaccineScheduleId?.attenderId?.Name || "N/A",
               }
             : {
                 type: "prescription",
-                button: "View Prescription"
-              }
+                button: "View Prescription",
+              },
       }));
 
       res.json({ "Status": "Success", data: result });
@@ -2178,8 +2182,139 @@ app.get("/medicalRecords/:catId", async (req, res) => {
   }
 });
 
+// -------------------------- View All Appointments Grouped by Date ------------------------- //
 
-// -------------------------- Attender View Vaccination ------------------------//
+app.post("/viewAllAppointments", async (req, res) => {
+  try {
+    const token = req.headers.token;
+
+    jwt.verify(token, "PawDermaKEY", async (error, decoded) => {
+      if (error || !decoded || decoded.userType !== "admin") {
+        return res.json({ "Status": "Invalid Authentication" });
+      }
+
+      try {
+        const appointments = await appointmentModel.find()
+          .populate("catId", "name breed")
+          .populate("catOwner_id", "fname lname phone")
+          .populate({
+            path: "scheduleId",
+            populate: { path: "doctorId", select: "fname lname specialization" }
+          })
+          .populate({
+            path: "vaccineScheduleId",
+            populate: { path: "attenderId", select: "Name qualification" }
+          });
+
+        if (!appointments.length) {
+          return res.json({ "Status": "NotFound", data: {} });
+        }
+
+        const grouped = {};
+
+        appointments.forEach((appt, idx) => {
+          let appointmentDate = "";
+          let time = "";
+          let personInCharge = "";
+          const bookingType = appt.bookingType;
+
+          let extras = {};
+
+          // ---------------- Vaccination ----------------
+          if (bookingType === "VACCINATION") {
+            const vs = appt.vaccineScheduleId;
+            if (vs && vs.date) appointmentDate = vs.date.toISOString().split("T")[0];
+            time = vs ? `${vs.vaccinationFrom} - ${vs.vaccinationTo}` : "";
+            personInCharge = vs?.attenderId ? `${vs.attenderId.Name}` : "N/A";
+
+            extras = {
+              vaccine: appt.vaccine || "", 
+              attenderName: vs?.attenderId?.Name || "N/A",
+              attenderQualification: vs?.attenderId?.qualification || ""
+            };
+
+          // ---------------- Skin ----------------
+          } else if (bookingType === "SKIN") {
+            const sch = appt.scheduleId;
+            if (sch && sch.date) appointmentDate = sch.date.toISOString().split("T")[0];
+            time = sch ? `${sch.consultationFrom} - ${sch.consultationTo}` : "";
+            personInCharge = sch?.doctorId ? `${sch.doctorId.fname} ${sch.doctorId.lname}` : "N/A";
+
+            extras = {
+              skinAnalysis: {
+                diseaseImage: appt.skinAnalysis?.diseaseImage || null,
+                predictedDisease: appt.skinAnalysis?.predictedDisease || null,
+                confidenceScore: appt.skinAnalysis?.confidenceScore ?? null
+              },
+              doctorName: sch?.doctorId ? `${sch.doctorId.fname} ${sch.doctorId.lname}` : "N/A",
+              specialization: sch?.doctorId?.specialization || ""
+            };
+
+          // ---------------- General ----------------
+          } else if (bookingType === "GENERAL") {
+            const sch = appt.scheduleId;
+            if (sch && sch.date) appointmentDate = sch.date.toISOString().split("T")[0];
+            time = sch ? `${sch.consultationFrom} - ${sch.consultationTo}` : "";
+            personInCharge = sch?.doctorId ? `${sch.doctorId.fname} ${sch.doctorId.lname}` : "N/A";
+
+            extras = {
+              symptoms: {
+                fever: appt.symptoms?.fever || "no",
+                vomiting: appt.symptoms?.vomiting || "no",
+                cough: appt.symptoms?.cough || "no",
+                loss_of_appetite: appt.symptoms?.loss_of_appetite || "no",
+                diarrhea: appt.symptoms?.diarrhea || "no"
+              },
+              doctorName: sch?.doctorId ? `${sch.doctorId.fname} ${sch.doctorId.lname}` : "N/A",
+              specialization: sch?.doctorId?.specialization || ""
+            };
+
+          } else {
+            const sch = appt.scheduleId || appt.vaccineScheduleId;
+            if (sch && sch.date) appointmentDate = sch.date.toISOString().split("T")[0];
+            if (sch && sch.consultationFrom && sch.consultationTo)
+              time = `${sch.consultationFrom} - ${sch.consultationTo}`;
+            else if (sch && sch.vaccinationFrom && sch.vaccinationTo)
+              time = `${sch.vaccinationFrom} - ${sch.vaccinationTo}`;
+            personInCharge = "N/A";
+            extras = {};
+          }
+
+          if (!appointmentDate) appointmentDate = "Unknown Date";
+
+          const obj = {
+            slNo: idx + 1,
+            appointmentId: appt._id,
+            appointmentDate,                 
+            time,                            
+            bookingType,
+            catName: appt.catId?.name || "",
+            breed: appt.catId?.breed || "",
+            ownerName: `${appt.catOwner_id?.fname || ""} ${appt.catOwner_id?.lname || ""}`.trim(),
+            phone: appt.catOwner_id?.phone || "",
+            personInCharge,
+            status: appt.status,
+            ...extras
+          };
+
+          if (!grouped[appointmentDate]) grouped[appointmentDate] = [];
+          grouped[appointmentDate].push(obj);
+        });
+
+        return res.json({ "Status": "Success", data: grouped });
+      } catch (err) {
+        console.error("Error fetching appointments:", err);
+        return res.json({ "Status": "Error" });
+      }
+    });
+  } catch (err) {
+    console.error("Server Error:", err);
+
+  }
+});
+
+
+// -------------------------- Attender View Vaccination ------------------------ //
 
 app.post("/VaccinationsView", async (req, res) => {
   let token = req.headers.token;
@@ -2229,7 +2364,7 @@ app.post("/VaccinationsView", async (req, res) => {
             phone: appt.catOwner_id?.phone || "",
             bookingType: appt.bookingType || "VACCINATION",
             time: `${appt.vaccineScheduleId.vaccinationFrom} - ${appt.vaccineScheduleId.vaccinationTo}`,
-            status: appt.status
+            status: appt.status,
           });
         } catch (err) {
           console.error("Invalid appointment date:", err);
