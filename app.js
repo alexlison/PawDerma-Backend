@@ -39,15 +39,12 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 
 // ======== ADD RAZORPAY INITIALIZATION HERE ========
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_RGywSXNw2dqMO2", 
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "7f1ss7rwYW5Vd9GKnViMp1Hh" 
-});
+
 // ==================================================
+//mongo db connection 
 
 
 
-mongoose.connect("mongodb+srv://alexlison:alexlison6885@cluster0.bz3d6.mongodb.net/PawDermaDb?retryWrites=true&w=majority&appName=Cluster0")
 
 // ----------------------- CatOwner Registration  ----------------------------------- //
 
